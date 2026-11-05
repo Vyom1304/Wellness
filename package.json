@@ -1,0 +1,9 @@
+{
+  "name": "logbook-tests",
+  "private": true,
+  "scripts": {
+    "build:index": "python3 tools/make_index.py",
+    "test": "node --test tests/server.test.js tests/frontend.test.js",
+    "e2e": "node tests/e2e.js"
+  }
+}

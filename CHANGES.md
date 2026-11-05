@@ -1,0 +1,28 @@
+# Logbook build notes
+
+## Schema changes (the design wins)
+| Tab | Brief said | Built | Why |
+|---|---|---|---|
+| Exercises | `primary_muscle` (one) | `primary_muscles` (comma list) | Design allows several primaries (e.g. Dips = chest + triceps; Deadlift = 3). |
+| Exercises | movement push / pull / legs | adds `core` | Design's exercise form and abs exercises use `core`. |
+| Exercises | n/a | `base_kg` | Design uses it to decide "kg" vs "reps" display (0 = bodyweight, tracked by reps). |
+| Exercises | muscle dropdown | formula validation + header note | Multi-value cells can't be a dropdown via Apps Script. |
+| Exercises | chest upper/mid/lower; back traps/rhomboids | kept in `notes` | Design has one `chest` and one `upper_back` muscle, with no chest sub-filter. Proposed smallest change if wanted: split `chest` into `upper_chest/mid_chest/lower_chest` in MUSCLES/GROUPS (design change). |
+| WorkoutSets | n/a | `exercise_order` | Rebuilds exercise order, and keeps the same exercise appearing twice in a workout separate. |
+| Routines | n/a | `custom` (checkbox) | Design shows a CUSTOM tag. `target_sets/target_reps` kept but unused by the UI. |
+| Settings | n/a | `rotation` key, `notes` column | Design's "Up next" needs a rotation (was hard-coded in the mock). |
+| FoodLog | meal values | breakfast, lunch, snack, dinner, pre, post | Design's six meals. |
+| Weights | waist_cm | kept, not shown in UI | Design has no waist input; preserved on overwrite. |
+| Settings | weight_unit | kept, not used | Design shows kg only. |
+
+## Front-end changes vs design/index.html (all in tools/make_index.py)
+1. Mock data, mock api, CONFIG latency/failRate and the "Simulate failed saves" toggle removed; real google.script.run api added.
+2. Startup: one `getBootstrap()` call instead of 10 reads.
+3. Fonts: design export had local font blobs; now loads the same IBM Plex families from Google Fonts.
+4. Design bug fixed: "+ New exercise" / "Edit exercise" crashed (`type` key used twice). Form now stores compound/isolation as `mech`.
+5. Delete food entry asks for confirmation (brief requirement).
+6. Food > Day fetches days older than 9 weeks on demand (brief: "recent" food log in bootstrap).
+7. Real ids also replace temporary ids in references on the phone (food log, recipe items, routines, active workout).
+8. `addSet` payload also sends `exIndex`.
+9. Empty-state guards: no weights yet (Progress showed NaN) and no routine in rotation.
+10. 7-day average extracted into `rollingAvg()` (unit-tested). "Made with Claude Design" badge removed.
