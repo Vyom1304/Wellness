@@ -24,6 +24,9 @@ const D = {
   apiNames: [...design.match(/return \{\n    getTargets:[\s\S]*?\n  \};/)[0].matchAll(/^\s{4}(\w+):/gm)].map(m => m[1])
 };
 
+/** A design ingredient in the app's current shape: fibre now lives with the other nutrients. */
+const DI = d => { const { fib, ...r } = d; return { ...r, n: fib == null ? {} : { fib } }; };
+const ENTRY_N = { ca: 120.5, fe: 1.2, vitc: 0 };
 function freshEnv(opts) { const env = makeEnv(opts); env.ctx.setup(); return env; }
 
 /* ============================== pure helpers ============================== */
@@ -96,9 +99,13 @@ const CORE = e => ({ id: e.id, name: e.name, prim: e.prim, sec: e.sec, eq: e.eq,
 test('row mapping: ingredient and exercise round trips match the design shapes', () => {
   const { ctx } = makeEnv();
   for (const ing of D.ingredients) {
-    const back = J(ctx.ingredientFromRow_(J(ctx.ingredientToFields_(ing))));
-    assert.deepEqual(back, ing);
+    const back = J(ctx.ingredientFromRow_(J(ctx.ingredientToFields_(DI(ing)))));
+    assert.deepEqual(back, DI(ing));
   }
+  // every nutrient survives a round trip; blank stays unknown and 0 stays 0
+  const rich = { id: 'x', name: 'X', kcal: 100, p: 1, c: 2, f: 3, n: { fib: 1.5, sugar: 0, ca: 120, b12: 2.4, choline: 55 }, unit: null };
+  assert.deepEqual(J(ctx.ingredientFromRow_(J(ctx.ingredientToFields_(rich)))), rich);
+  assert.deepEqual(J(ctx.ingredientFromRow_({ id: 'y', name: 'Y', kcal_100g: 1, ca_mg: '' , calcium_mg_100g: '' })).n, {});
   for (const ex of D.exercises) {
     const back = J(ctx.exerciseFromRow_(J(ctx.exerciseToFields_(ex))));
     assert.deepEqual(CORE(back), ex);
@@ -146,8 +153,8 @@ test('row mapping: routines keep order and custom flag; settings -> targets', ()
     { id: 'b', name: 'B', exercise_id: 'y', order: 1, custom: true },
     { id: 'a', name: 'A', exercise_id: 'x1', order: 1, custom: false }]));
   assert.deepEqual(r, [{ id: 'a', name: 'A', ex: ['x1', 'x2'] }, { id: 'b', name: 'B', ex: ['y'], custom: true }]);
-  const s = J(ctx.targetsFromSettings_([{ key: 'kcal', value: 2100 }, { key: 'protein_g', value: '150' }, { key: 'rotation', value: 'upper, lower' }]));
-  assert.deepEqual(s.targets, { kcal: 2100, p: 150, c: 260, f: 70, water: 10, glassMl: 250 });
+  const s = J(ctx.targetsFromSettings_([{ key: 'water_glasses', value: 8 }, { key: 'kcal', value: 2100 }, { key: 'rotation', value: 'upper, lower' }]));
+  assert.deepEqual(s.targets, { water: 8, glassMl: 250 }, 'no calorie or macro goals');
   assert.deepEqual(s.rotation, ['upper', 'lower']);
 });
 
@@ -209,7 +216,7 @@ test('seed: routines and recipes only reference seeded items and match the desig
   const exIds = new Set(b.exercises.map(e => e.id)), ingIds = new Set(b.ingredients.map(i => i.id));
   assert.deepEqual(b.routines, D.routines);
   for (const r of b.routines) for (const e of r.ex) assert.ok(exIds.has(e), r.id + ' -> ' + e);
-  assert.deepEqual(b.recipes, D.recipes.map(r => ({ id: r.id, name: r.name, servings: r.servings, items: r.items })));
+  assert.deepEqual(b.recipes, [], 'no example recipes');
   for (const r of b.recipes) for (const it of r.items) assert.ok(ingIds.has(it.ing), r.id + ' -> ' + it.ing);
 });
 
@@ -229,7 +236,7 @@ test('setup: creates every tab with headers, frozen row, text/number formats and
       if (c.list || c.v) assert.ok(sh.validation[i + 1], name + '.' + c.n + ' validation');
     });
   }
-  for (const [tab, col] of [['FoodLog', 'meal'], ['Exercises', 'equipment'], ['Exercises', 'movement_type'], ['Exercises', 'mechanic'], ['Exercises', 'primary_muscles']]) {
+  for (const [tab, col] of [['FoodLog', 'kind'], ['Exercises', 'equipment'], ['Exercises', 'movement_type'], ['Exercises', 'mechanic'], ['Exercises', 'primary_muscles']]) {
     const sh = env.ss.getSheetByName(tab); assert.ok(sh.validation[sh.header().indexOf(col) + 1], tab + '.' + col);
   }
   assert.equal(env.ss.getSheetByName('Exercises').rows().length, J(env.get('SEED_EXERCISES_')).length);
@@ -327,32 +334,39 @@ test('focus: tags cover all 144 seeded exercises with real region ids; round-tri
 
 test('cache: bumped version so cached rows without the new fields are not served', () => {
   const env = makeEnv();
-  assert.equal(env.get('CACHE_VERSION'), 'v3');
+  assert.equal(env.get('CACHE_VERSION'), 'v4');
 });
 
 /* ============================== API ============================== */
 
-const ENTRY = { id: 'tmp1700000000abc', date: '2024-11-05', time: '08:20', meal: 'breakfast', kind: 'ing', ref: 'oats', qty: 60, unit: 'g', name: 'Rolled oats', kcal: 233.4, p: 10.14, c: 39.78, f: 4.14 };
+const ENTRY = { id: 'tmp1700000000abc', date: '2024-11-05', time: '08:20', kind: 'ing', ref: 'oats', qty: 60, unit: 'g', name: 'Rolled oats', kcal: 233.4, p: 10.14, c: 39.78, f: 4.14 };
 
 test('api: bootstrap returns every slice in the design shapes, with design default targets', () => {
   const env = freshEnv();
   const b = ok(env.ctx.getBootstrap('2024-11-05'));
   assert.deepEqual(Object.keys(b).sort(), ['exercises', 'foodLog', 'foodLogFrom', 'ingredients', 'recipes', 'rotation', 'routines', 'targets', 'water', 'weights', 'wellness', 'workouts'].sort());
-  assert.deepEqual(b.targets, D.targets);
+  assert.deepEqual(b.targets, { water: 10, glassMl: 250 });
   assert.deepEqual(b.rotation, ['push', 'pull', 'legs']);
   assert.deepEqual(CORE(b.exercises.find(e => e.id === 'bench')), D.exercises.find(e => e.id === 'bench'));
   assert.ok(b.exercises.every(e => Array.isArray(e.how) && Array.isArray(e.cues) && Array.isArray(e.mist) && typeof e.note === 'string'), 'every exercise carries the how-to fields');
-  assert.deepEqual(b.ingredients.find(i => i.id === 'roti'), D.ingredients.find(i => i.id === 'roti'));
-  assert.deepEqual([b.foodLog, b.water, b.weights, b.wellness, b.workouts], [[], {}, [], [], []]);
+  const roti = b.ingredients.find(i => i.id === 'roti'), dr = DI(D.ingredients.find(i => i.id === 'roti'));
+  assert.deepEqual([roti.name, roti.kcal, roti.p, roti.c, roti.f, roti.unit, roti.n.fib], [dr.name, dr.kcal, dr.p, dr.c, dr.f, dr.unit, dr.n.fib]);
+  assert.ok(Object.keys(roti.n).length > 15, 'original foods carry vitamins and minerals');
+  assert.deepEqual([b.foodLog, b.water, b.wellness, b.workouts], [[], {}, [], []]);
+  assert.deepEqual(b.weights.map(w => w.kg), [50], 'the Weights tab starts with 50 kg');
   assert.equal(b.foodLogFrom, '2024-09-03');
-  assert.deepEqual(ok(env.ctx.getTargets()), D.targets);
+  assert.deepEqual(ok(env.ctx.getTargets()), { water: 10, glassMl: 250 });
 });
 
 test('api: food log add / retry / update / delete; stored as real dates, history values frozen', () => {
   const env = freshEnv();
   const e = ok(env.ctx.addFoodEntry(ENTRY));
   assert.match(e.id, /^f[0-9a-f]{10}$/);
-  assert.deepEqual({ ...e, id: 0 }, { ...ENTRY, id: 0, kcal: 233.4, p: 10.14, c: 39.78, f: 4.14 });
+  assert.deepEqual({ ...e, id: 0 }, { ...ENTRY, id: 0, kcal: 233.4, p: 10.14, c: 39.78, f: 4.14, n: {} });
+  // all nutrients are stored with the entry (blank when there are none)
+  const withN = ok(env.ctx.addFoodEntry({ ...ENTRY, id: 'tmpN', n: ENTRY_N })); assert.deepEqual(withN.n, ENTRY_N);
+  assert.equal(JSON.parse(env.ss.getSheetByName('FoodLog').objects()[1].nutrients).ca, 120.5);
+  ok(env.ctx.deleteFoodEntry(withN.id));
   const row = env.ss.getSheetByName('FoodLog').objects()[0];
   assert.ok(row.date instanceof Date); assert.equal(row.date.toISOString(), '2024-11-04T18:30:00.000Z'); // midnight IST
   assert.equal(row.time, '08:20'); assert.equal(typeof row.time, 'string');
@@ -360,19 +374,19 @@ test('api: food log add / retry / update / delete; stored as real dates, history
   assert.equal(ok(env.ctx.addFoodEntry(ENTRY)).id, e.id);
   assert.equal(env.ss.getSheetByName('FoodLog').rows().length, 1);
   // editing the ingredient later doesn't change what was logged
-  ok(env.ctx.saveIngredient({ ...D.ingredients.find(i => i.id === 'oats'), kcal: 999 }));
+  ok(env.ctx.saveIngredient({ ...DI(D.ingredients.find(i => i.id === 'oats')), kcal: 999 }));
   assert.equal(ok(env.ctx.getFoodLog('2024-11-05'))[0].kcal, 233.4);
-  // update moves it to another meal and day
-  const u = ok(env.ctx.updateFoodEntry(e.id, { qty: 80, unit: 'g', meal: 'snack', time: '16:00', date: '2024-11-04', kcal: 311.2, p: 13.5, c: 53, f: 5.5 }));
-  assert.deepEqual([u.meal, u.date, u.qty, u.name], ['snack', '2024-11-04', 80, 'Rolled oats']);
+  // update moves it to another day and rescales the nutrients
+  const u = ok(env.ctx.updateFoodEntry(e.id, { qty: 80, unit: 'g', time: '16:00', date: '2024-11-04', kcal: 311.2, p: 13.5, c: 53, f: 5.5, n: { ca: 60 } }));
+  assert.deepEqual([u.date, u.qty, u.name, u.n], ['2024-11-04', 80, 'Rolled oats', { ca: 60 }]);
   assert.deepEqual(ok(env.ctx.getFoodLog('2024-11-05')), []);
   assert.equal(ok(env.ctx.getFoodLog()).length, 1);
   assert.equal(ok(env.ctx.deleteFoodEntry(e.id)).ok, true);
   assert.equal(env.ss.getSheetByName('FoodLog').rows().length, 0);
   assert.equal(ok(env.ctx.deleteFoodEntry(e.id)).ok, true, 'deleting twice is harmless');
   // bad input -> {ok:false}
-  const bad = env.ctx.addFoodEntry({ ...ENTRY, id: 'tmpX', meal: 'brunch' });
-  assert.equal(bad.ok, false); assert.match(bad.error, /meal/);
+  const bad = env.ctx.addFoodEntry({ ...ENTRY, id: 'tmpX', unit: 'bowl' });
+  assert.equal(bad.ok, false); assert.match(bad.error, /unit/);
   assert.equal(env.ctx.updateFoodEntry('nope', { qty: 1 }).ok, false);
 });
 
@@ -392,11 +406,11 @@ test('api: ingredients — create, update keeps notes, cache is used and refresh
   const reads = env.stats.getValues.Ingredients || 0;
   ok(env.ctx.getIngredients()); ok(env.ctx.getBootstrap('2024-11-05'));
   assert.equal(env.stats.getValues.Ingredients || 0, reads, 'second read should come from cache');
-  const created = ok(env.ctx.saveIngredient({ id: 'tmp1', name: 'Rajma masala', kcal: 140, p: 6, c: 20, f: 4, fib: null, unit: { name: 'katori', g: 150 } }));
+  const created = ok(env.ctx.saveIngredient({ id: 'tmp1', name: 'Rajma masala', kcal: 140, p: 6, c: 20, f: 4, n: { fib: 5, ca: 40 }, unit: { name: 'katori', g: 150 } }));
   assert.match(created.id, /^i/);
-  assert.deepEqual({ ...created, id: 0 }, { id: 0, name: 'Rajma masala', kcal: 140, p: 6, c: 20, f: 4, fib: null, unit: { name: 'katori', g: 150 } });
+  assert.deepEqual({ ...created, id: 0 }, { id: 0, name: 'Rajma masala', kcal: 140, p: 6, c: 20, f: 4, n: { fib: 5, ca: 40 }, unit: { name: 'katori', g: 150 } });
   assert.ok(ok(env.ctx.getIngredients()).some(i => i.id === created.id), 'cache refreshed after write');
-  const upd = ok(env.ctx.saveIngredient({ ...D.ingredients.find(i => i.id === 'paneer'), name: 'Paneer (Amul)' }));
+  const upd = ok(env.ctx.saveIngredient({ ...DI(D.ingredients.find(i => i.id === 'paneer')), name: 'Paneer (Amul)' }));
   assert.equal(upd.name, 'Paneer (Amul)');
   const row = env.ss.getSheetByName('Ingredients').objects().find(r => r.id === 'paneer');
   assert.equal(row.notes, 'Approximate values per 100 g');
@@ -409,23 +423,26 @@ test('api: ingredients — create, update keeps notes, cache is used and refresh
   assert.equal(env.ctx.saveIngredient({ id: 'tmp9', name: '', kcal: 1 }).ok, false);
 });
 
-test('api: recipes — create, then update replaces only that recipe\'s items', () => {
+test('api: recipes — create with a finished weight, then update replaces only that recipe\'s items', () => {
   const env = freshEnv();
-  const r = ok(env.ctx.saveRecipe({ id: 'tmp1', name: 'Rajma', servings: 4, items: [{ ing: 'rajma', g: 250 }, { ing: 'onion', g: 100 }] }));
-  assert.match(r.id, /^r/);
+  assert.deepEqual(ok(env.ctx.getRecipes()), []);
+  const r = ok(env.ctx.saveRecipe({ id: 'tmp1', name: 'Rajma', servings: 4, cooked: 900, items: [{ ing: 'rajma', g: 250 }, { ing: 'onion', g: 100 }] }));
+  assert.match(r.id, /^r/); assert.equal(r.cooked, 900);
+  const other = ok(env.ctx.saveRecipe({ id: 'tmp2', name: 'Aloo sabji', servings: 1, items: [{ ing: 'potato', g: 300 }] }));
+  assert.equal(other.cooked, null, 'blank finished weight = unknown');
   const before = env.ss.getSheetByName('RecipeItems').rows().length;
-  const r2 = ok(env.ctx.saveRecipe({ id: 'r_dal', name: 'Dal tadka', servings: 6, items: [{ ing: 'toor', g: 300 }] }));
-  assert.equal(r2.id, 'r_dal');
+  const r2 = ok(env.ctx.saveRecipe({ id: r.id, name: 'Rajma masala', servings: 6, cooked: 1000, items: [{ ing: 'rajma', g: 300 }] }));
+  assert.equal(r2.id, r.id);
   const recs = ok(env.ctx.getRecipes());
-  assert.deepEqual(recs.find(x => x.id === 'r_dal'), { id: 'r_dal', name: 'Dal tadka', servings: 6, items: [{ ing: 'toor', g: 300 }] });
-  assert.deepEqual(recs.find(x => x.id === r.id).items, [{ ing: 'rajma', g: 250 }, { ing: 'onion', g: 100 }]);
-  assert.deepEqual(recs.find(x => x.id === 'r_curry'), { ...D.recipes.find(x => x.id === 'r_curry') });
-  assert.equal(env.ss.getSheetByName('RecipeItems').rows().length, before - 4 + 1);
-  assert.equal(env.ctx.saveRecipe({ id: 'tmp2', name: 'Empty', servings: 1, items: [] }).ok, false);
+  assert.deepEqual(recs.find(x => x.id === r.id), { id: r.id, name: 'Rajma masala', servings: 6, cooked: 1000, items: [{ ing: 'rajma', g: 300 }] });
+  assert.deepEqual(recs.find(x => x.id === other.id).items, [{ ing: 'potato', g: 300 }]);
+  assert.equal(env.ss.getSheetByName('RecipeItems').rows().length, before - 2 + 1);
+  assert.equal(env.ctx.saveRecipe({ id: 'tmp3', name: 'Empty', servings: 1, items: [] }).ok, false);
 });
 
 test('api: water / weight / wellness keep one row per date; waist is preserved', () => {
   const env = freshEnv();
+  env.ss.getSheetByName('Weights').data.length = 1; // drop the 50 kg starting row
   assert.deepEqual(ok(env.ctx.setWater('2024-11-05', 3)), { date: '2024-11-05', n: 3 });
   ok(env.ctx.setWater('2024-11-05', 4)); ok(env.ctx.setWater('2024-11-04', 8));
   assert.deepEqual(ok(env.ctx.getWater()), { '2024-11-05': 4, '2024-11-04': 8 });
@@ -508,9 +525,10 @@ test('api: large tabs still cache (chunked > 100 KB)', () => {
   const sh = env.ss.getSheetByName('Ingredients');
   for (let i = 0; i < 1500; i++) sh.data.push(['x' + i, 'Some fairly long ingredient name number ' + i, 100, 1, 1, 1, 1, '', '', 'note']);
   sh.maxRows = 2000;
-  assert.equal(ok(env.ctx.getIngredients()).length, 1500 + J(env.get('SEED_INGREDIENTS_')).length);
+  const seeded = J(env.ctx.seedIngredients_()).length;
+  assert.equal(ok(env.ctx.getIngredients()).length, 1500 + seeded);
   const reads = env.stats.getValues.Ingredients;
-  assert.equal(ok(env.ctx.getIngredients()).length, 1500 + J(env.get('SEED_INGREDIENTS_')).length);
+  assert.equal(ok(env.ctx.getIngredients()).length, 1500 + seeded);
   assert.equal(env.stats.getValues.Ingredients, reads);
   assert.ok([...env.cacheStore.keys()].filter(k => k.includes('Ingredients:')).length >= 2, 'stored in several chunks');
 });
@@ -551,4 +569,55 @@ test('doGet serves Index with a mobile viewport', () => {
   assert.equal(env.html.file, 'Index');
   assert.equal(env.html.title, 'Logbook');
   assert.match(env.html.meta.viewport, /width=device-width/);
+});
+
+/* ============================== food overhaul ============================== */
+
+test('food: a fresh sheet has 190+ foods with real nutrient data, no recipes, and a 50 kg weight', () => {
+  const env = freshEnv();
+  const rows = env.ss.getSheetByName('Ingredients').objects();
+  assert.ok(rows.length >= 190, rows.length + ' foods');
+  assert.equal(new Set(rows.map(r => r.id)).size, rows.length, 'ids are unique');
+  const names = rows.map(r => r.name.toLowerCase()).join('|');
+  for (const must of ['apple', 'mango', 'banana', 'spinach', 'carrot', 'broccoli', 'okra', 'cauliflower', 'papaya', 'guava', 'orange', 'almond', 'chickpea', 'rajma', 'salmon']) assert.ok(names.includes(must), must);
+  for (const r of rows) {
+    assert.ok(r.protein_100g + r.carbs_100g + r.fat_100g <= 100.6, r.id + ' macros exceed 100 g');
+    const fib = r.fibre_100g === '' ? 0 : r.fibre_100g; // fibre gives about half the energy of other carbs
+    if (fib <= 15) assert.ok(Math.abs(4 * r.protein_100g + 4 * (r.carbs_100g - fib) + 2 * fib + 9 * r.fat_100g - r.kcal_100g) <= Math.max(45, r.kcal_100g * 0.2), r.id + ' energy does not match macros');
+    assert.ok(r.fibre_100g === '' || r.fibre_100g <= r.carbs_100g + 0.01, r.id + ' fibre > carbs');
+  }
+  const full = rows.filter(r => r.calcium_mg_100g !== '' && r.iron_mg_100g !== '' && r.vitamin_c_mg_100g !== '' && r.folate_b9_mcg_100g !== '');
+  assert.ok(full.length / rows.length > 0.9, 'most foods have minerals and vitamins');
+  assert.equal(env.ss.getSheetByName('Recipes').rows().length, 0); assert.equal(env.ss.getSheetByName('RecipeItems').rows().length, 0);
+  assert.deepEqual(env.ss.getSheetByName('Weights').objects().map(w => w.weight_kg), [50]);
+  assert.ok(!env.ss.getSheetByName('Settings').objects().some(r => /kcal|protein|carbs|fat/.test(r.key)), 'no calorie or macro goals in Settings');
+  assert.ok(!env.ss.getSheetByName('FoodLog').header().includes('meal'));
+});
+
+test('food: every nutrient column in the Sheet maps to one key the app knows', () => {
+  const env = makeEnv(); const N = J(env.get('NUTRIENTS_'));
+  assert.equal(N.length, 30); assert.equal(new Set(N.map(n => n[0])).size, 30);
+  const header = J(env.get('SCHEMA_')).Ingredients.map(c => c.n);
+  for (const [, col] of N) assert.ok(header.includes(col), col);
+});
+
+test('food: updating an older sheet removes only the untouched example recipes, adds new foods and fills blank nutrients', () => {
+  const env = makeEnv();
+  env.ctx.setup();
+  const ing = env.ss.getSheetByName('Ingredients'), H = ing.header();
+  // rebuild the old state: example recipes present, an edited one, a custom one, a few foods missing, nutrient cells blank
+  const rec = env.ss.getSheetByName('Recipes'), items = env.ss.getSheetByName('RecipeItems');
+  const addRec = (id, name) => { rec.data.push(rec.header().map(h => ({ id, name, servings: 4 })[h] ?? '')); items.data.push(items.header().map(h => ({ id: 'ri' + id, recipe_id: id, ingredient_id: 'toor', grams: 100 })[h] ?? '')); };
+  addRec('r_curry', 'Chicken curry'); addRec('r_dal', 'My own dal'); addRec('r_mine', 'Mine');
+  ing.data = ing.data.filter((r, i) => i === 0 || !String(r[0]).startsWith('f_'));
+  const toor = ing.data.find(r => r[0] === 'toor'); const ci = H.indexOf('calcium_mg_100g'); const had = toor[ci]; assert.ok(had !== '');
+  toor[ci] = ''; const pi = H.indexOf('protein_100g'); toor[pi] = 99; // edited value must stay
+  const log = J(env.ctx.setup());
+  assert.deepEqual(rec.objects().map(r => r.id).sort(), ['r_dal', 'r_mine'], 'edited and custom recipes are kept');
+  assert.equal(items.objects().filter(r => r.recipe_id === 'r_curry').length, 0);
+  assert.ok(env.ss.getSheetByName('Ingredients').objects().some(r => r.id === 'f_mango'));
+  const t2 = env.ss.getSheetByName('Ingredients').objects().find(r => r.id === 'toor');
+  assert.equal(t2.calcium_mg_100g, had); assert.equal(t2.protein_100g, 99);
+  assert.ok(log.some(l => /example recipes/.test(l)) && log.some(l => /added \d+ foods/.test(l)), log.join('\n'));
+  assert.deepEqual(J(env.ctx.setup()).filter(l => /removed|added/.test(l)), [], 'nothing left to do the second time');
 });
