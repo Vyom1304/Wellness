@@ -14,17 +14,21 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 const iso = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 const day = n => { const d = new Date(); d.setDate(d.getDate() + n); return iso(d); };
 
+const J = x => JSON.parse(JSON.stringify(x));
+let RECIPE_ID = '';
 function seedHistory(env) {
   const c = env.ctx;
+  RECIPE_ID = J(c.saveRecipe({ id: 'tmpR', name: 'Aloo sabji', servings: 1, cooked: 480, items: [{ ing: 'potato', g: 400 }, { ing: 'oil', g: 20 }, { ing: 'onion', g: 80 }] })).data.id;
   for (let d = -45; d <= -1; d++) {
     if (d % 7 !== 3) c.addWeight({ date: day(d), kg: Math.round((79.5 + d * 0.03 + Math.sin(d) * 0.3) * 10) / 10 });
     if (d >= -27) c.saveWellness({ date: day(d), sleep: 6.5 + (d % 3) * 0.5, energy: 3 + (d % 2) });
     if (d >= -27) c.setWater(day(d), 7 + (d % 3));
     if (d >= -20) {
-      c.addFoodEntry({ id: 'tmpb' + d, date: day(d), time: '08:30', meal: 'breakfast', kind: 'ing', ref: 'oats', qty: 70, unit: 'g', name: 'Rolled oats', kcal: 272, p: 11.8, c: 46.4, f: 4.8 });
-      c.addFoodEntry({ id: 'tmpl' + d, date: day(d), time: '13:10', meal: 'lunch', kind: 'rec', ref: 'r_dal', qty: 1, unit: 'srv', name: 'Dal tadka', kcal: 248, p: 11.7, c: 33.7, f: 7.1 });
-      c.addFoodEntry({ id: 'tmpd' + d, date: day(d), time: '21:00', meal: 'dinner', kind: 'rec', ref: 'r_curry', qty: 1.5, unit: 'srv', name: 'Chicken curry', kcal: 640 + d * 3, p: 70, c: 14, f: 30 });
-      c.addFoodEntry({ id: 'tmps' + d, date: day(d), time: '17:00', meal: 'snack', kind: 'ing', ref: 'whey', qty: 1, unit: 'pc', name: 'Whey protein', kcal: 120, p: 24, c: 2.4, f: 1.8 });
+      const big = { ca: 80, fe: 2.1, vitc: 12, b9: 60, k: 310, na: 14 };
+      c.addFoodEntry({ id: 'tmpb' + d, date: day(d), time: '08:30', kind: 'ing', ref: 'oats', qty: 70, unit: 'g', name: 'Rolled oats', kcal: 272, p: 11.8, c: 46.4, f: 4.8, n: big });
+      c.addFoodEntry({ id: 'tmpl' + d, date: day(d), time: '13:10', kind: 'rec', ref: RECIPE_ID, qty: 250, unit: 'g', name: 'Aloo sabji', kcal: 248, p: 5.7, c: 33.7, f: 9.1, n: big });
+      c.addFoodEntry({ id: 'tmpd' + d, date: day(d), time: '21:00', kind: 'ing', ref: 'chicken', qty: 200, unit: 'g', name: 'Chicken breast', kcal: 440 + d * 3, p: 62, c: 0, f: 20, n: big });
+      c.addFoodEntry({ id: 'tmps' + d, date: day(d), time: '17:00', kind: 'ing', ref: 'whey', qty: 30, unit: 'g', name: 'Whey protein', kcal: 120, p: 24, c: 2.4, f: 1.8 });
     }
     const rot = ['push', 'pull', 'legs'], k = (-d) % 4;
     if (k !== 1 && d >= -30) {
@@ -79,14 +83,14 @@ function seedHistory(env) {
   let page = await newPage({ ...devices['iPhone 13'] });
   await page.waitForSelector('.skel');
   await shot(page, '00-loading-skeleton');
-  await page.waitForSelector('text=kcal left');
+  await page.waitForSelector('text=Eaten today');
   await shot(page, '01-today-empty');
   await tap(page, 'text=Progress'); await sleep(200);
   await shot(page, '02-progress-empty');
 
   /* ---- 2. with history ---- */
   seedHistory(env);
-  await page.reload(); await page.waitForSelector('text=kcal left');
+  await page.reload(); await page.waitForSelector('text=Eaten today');
   await tap(page, 'text=+1 glass');
   await page.waitForSelector('#status .pill:has-text("Saving")');
   await shot(page, '03-today-saving-pill');
@@ -94,6 +98,8 @@ function seedHistory(env) {
   // log food through the FAB
   await tap(page, '.fab'); await page.fill('[data-in=foodQ]', 'paneer');
   await tap(page, '.list-row:has-text("Paneer")');
+  await page.fill('[data-in=qty]', '150'); await sleep(100);
+  await tap(page, '[data-a=qtyNut]'); await sleep(100);
   await shot(page, '04-qty-sheet');
   await tap(page, '#qsave'); await idle(page);
   await tap(page, '[data-a=tab][data-t=today]'); await sleep(100);
@@ -105,13 +111,19 @@ function seedHistory(env) {
   await shot(page, '06-save-failed-retry');
   await tap(page, '#status .pill.err'); await idle(page);
   // food views
-  await tap(page, '[data-a=tab][data-t=food]'); await page.fill('[data-in=foodQ]', ''); await sleep(100);
-  await shot(page, '07-food-log');
-  await tap(page, '[data-a=foodSeg][data-s=day]'); await sleep(100);
+  await tap(page, '[data-a=tab][data-t=food]'); await tap(page, '[data-a=foodSeg][data-s=day]'); await sleep(100);
   await shot(page, '08-food-day');
+  await tap(page, '[data-a=toggleNut]'); await sleep(100);
+  await shot(page, '08b-food-day-all-nutrients');
+  await tap(page, '[data-a=foodSeg][data-s=log]'); await page.fill('[data-in=foodQ]', ''); await sleep(100);
+  await shot(page, '07-food-log');
+  await tap(page, '[data-a=foodSeg][data-s=ingredients]'); await sleep(100);
+  await tap(page, '[data-a=editIng][data-id=paneer]'); await tap(page, '[data-a=ingMore]'); await sleep(150);
+  await shot(page, '09b-food-form');
+  await tap(page, '.sh-head [data-a=closeSheet]');
   await tap(page, '[data-a=foodSeg][data-s=recipes]'); await sleep(100);
   await shot(page, '09-recipes');
-  await tap(page, '[data-a=editRecipe][data-id=r_dal]'); await sleep(150);
+  await tap(page, '[data-a=editRecipe]'); await sleep(150);
   await shot(page, '10-recipe-sheet');
   await tap(page, '.sh-head [data-a=closeSheet]');
   // gym: routines, then the Exercises button at the bottom of the page
@@ -188,7 +200,7 @@ function seedHistory(env) {
 
   /* ---- 3. desktop layout ---- */
   page = await newPage({ viewport: { width: 1280, height: 860 } });
-  await page.waitForSelector('text=kcal left');
+  await page.waitForSelector('text=Eaten today');
   await shot(page, '26-desktop-today');
   await tap(page, '[data-a=tab][data-t=progress]'); await sleep(200);
   await shot(page, '27-desktop-progress');

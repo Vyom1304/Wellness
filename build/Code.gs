@@ -11,15 +11,15 @@
 /* ============================== config ============================== */
 
 const TZ_DEFAULT = 'Asia/Kolkata';
+const START_WEIGHT_KG_ = 50;         // first weight entry on a brand new Weights tab
 const FOOD_WINDOW_DAYS = 63;          // getBootstrap sends this many days of food log (covers the 8-week charts)
 const CACHE_TTL_S = 6 * 60 * 60;      // CacheService maximum
-const CACHE_VERSION = 'v3';
+const CACHE_VERSION = 'v4';
 const LOCK_WAIT_MS = 20000;
 const BACKUP_FOLDER_NAME = 'Backups';
 // Icon shown in the browser tab and on a phone home screen. Any public .png URL works.
 const FAVICON_URL = 'https://www.gstatic.com/images/icons/material/system/2x/fitness_center_black_48dp.png';
 
-const MEALS_ = ['breakfast', 'lunch', 'snack', 'dinner', 'pre', 'post'];
 const MUSCLES_ = ['chest', 'lats', 'upper_back', 'lower_back', 'front_delts', 'side_delts', 'rear_delts',
   'biceps', 'triceps', 'forearms', 'abs', 'quads', 'hamstrings', 'glutes', 'calves'];
 const EQUIP_ = ['barbell', 'dumbbell', 'cable', 'machine', 'bodyweight'];
@@ -27,14 +27,21 @@ const MOVES_ = ['push', 'pull', 'legs', 'core'];
 const MECH_ = ['compound', 'isolation'];
 
 const SETTINGS_DEFAULTS_ = [
-  ['kcal', 2400, 'Daily calorie target'],
-  ['protein_g', 160, 'Daily protein target (g)'],
-  ['carbs_g', 260, 'Daily carbs target (g)'],
-  ['fat_g', 70, 'Daily fat target (g)'],
   ['water_glasses', 10, 'Daily water target (glasses)'],
   ['glass_ml', 250, 'Size of one glass (ml)'],
   ['weight_unit', 'kg', 'Display unit. The app currently shows kg only.'],
   ['rotation', 'push,pull,legs', 'Routine ids in your training rotation, comma separated (see the Routines tab). Drives "Up next".']
+];
+
+/* Extra nutrients on an ingredient, per 100 g: [key used by the app, column in the Ingredients tab]. Blank cell = unknown. */
+const NUTRIENTS_ = [
+  ['fib', 'fibre_100g'], ['sugar', 'sugar_100g'], ['satfat', 'sat_fat_100g'], ['monofat', 'mono_fat_100g'], ['polyfat', 'poly_fat_100g'],
+  ['chol', 'cholesterol_mg_100g'], ['na', 'sodium_mg_100g'], ['k', 'potassium_mg_100g'], ['ca', 'calcium_mg_100g'], ['fe', 'iron_mg_100g'],
+  ['mg', 'magnesium_mg_100g'], ['phos', 'phosphorus_mg_100g'], ['zn', 'zinc_mg_100g'], ['cu', 'copper_mg_100g'], ['mn', 'manganese_mg_100g'],
+  ['se', 'selenium_mcg_100g'], ['vita', 'vitamin_a_mcg_100g'], ['vitc', 'vitamin_c_mg_100g'], ['vitd', 'vitamin_d_mcg_100g'],
+  ['vite', 'vitamin_e_mg_100g'], ['vitk', 'vitamin_k_mcg_100g'], ['b1', 'thiamin_b1_mg_100g'], ['b2', 'riboflavin_b2_mg_100g'],
+  ['b3', 'niacin_b3_mg_100g'], ['b5', 'pantothenic_b5_mg_100g'], ['b6', 'vitamin_b6_mg_100g'], ['b7', 'biotin_b7_mcg_100g'],
+  ['b9', 'folate_b9_mcg_100g'], ['b12', 'vitamin_b12_mcg_100g'], ['choline', 'choline_mg_100g']
 ];
 
 /*
@@ -47,16 +54,18 @@ const SCHEMA_ = {
     { n: 'key', w: 140, f: '@' }, { n: 'value', w: 160 }, { n: 'notes', w: 420, f: '@' }],
   FoodLog: [
     { n: 'id', w: 110, f: '@' }, { n: 'date', w: 100, f: 'yyyy-mm-dd' }, { n: 'time', w: 60, f: '@' },
-    { n: 'meal', w: 95, list: MEALS_ }, { n: 'kind', w: 55, list: ['ing', 'rec'] }, { n: 'ref_id', w: 110, f: '@' },
+    { n: 'kind', w: 55, list: ['ing', 'rec'] }, { n: 'ref_id', w: 110, f: '@' },
     { n: 'name', w: 220, f: '@' }, { n: 'qty', w: 60, f: '0.##' }, { n: 'unit', w: 55, list: ['g', 'pc', 'srv'] },
-    { n: 'kcal', w: 65, f: '0' }, { n: 'protein', w: 65, f: '0.0' }, { n: 'carbs', w: 65, f: '0.0' }, { n: 'fat', w: 65, f: '0.0' }],
+    { n: 'kcal', w: 65, f: '0' }, { n: 'protein', w: 65, f: '0.0' }, { n: 'carbs', w: 65, f: '0.0' }, { n: 'fat', w: 65, f: '0.0' },
+    { n: 'nutrients', w: 260, f: '@' }],
   Ingredients: [
     { n: 'id', w: 110, f: '@' }, { n: 'name', w: 230, f: '@' }, { n: 'kcal_100g', w: 80, f: '0' },
     { n: 'protein_100g', w: 95, f: '0.0' }, { n: 'carbs_100g', w: 85, f: '0.0' }, { n: 'fat_100g', w: 75, f: '0.0' },
     { n: 'fibre_100g', w: 80, f: '0.0' }, { n: 'unit_name', w: 85, f: '@' }, { n: 'unit_g', w: 65, f: '0.##' },
-    { n: 'notes', w: 300, f: '@' }],
+    { n: 'notes', w: 300, f: '@' }].concat(NUTRIENTS_.filter(function (n) { return n[0] !== 'fib'; }).map(function (n) { return { n: n[1], w: 100, f: '0.###' }; })),
   Recipes: [
-    { n: 'id', w: 110, f: '@' }, { n: 'name', w: 220, f: '@' }, { n: 'servings', w: 75, f: '0' }, { n: 'notes', w: 300, f: '@' }],
+    { n: 'id', w: 110, f: '@' }, { n: 'name', w: 220, f: '@' }, { n: 'servings', w: 75, f: '0' }, { n: 'notes', w: 300, f: '@' },
+    { n: 'cooked_g', w: 95, f: '0.#' }],
   RecipeItems: [
     { n: 'recipe_id', w: 110, f: '@' }, { n: 'ingredient_id', w: 120, f: '@' }, { n: 'grams', w: 75, f: '0.##' }],
   Exercises: [
@@ -212,20 +221,22 @@ function contiguousBlocks_(rowNums) {
 /* ---------- row <-> object mapping (shapes match the design's data) ---------- */
 
 function ingredientFromRow_(r) {
-  const un = str_(r.unit_name), ug = num_(r.unit_g, 0);
+  const un = str_(r.unit_name), ug = num_(r.unit_g, 0), n = {};
+  NUTRIENTS_.forEach(function (d) { const v = r[d[1]]; if (!isBlank_(v) && !isNaN(num_(v, NaN))) n[d[0]] = num_(v); });
   return {
     id: str_(r.id), name: str_(r.name),
-    kcal: num_(r.kcal_100g), p: num_(r.protein_100g), c: num_(r.carbs_100g), f: num_(r.fat_100g),
-    fib: isBlank_(r.fibre_100g) ? null : num_(r.fibre_100g),
+    kcal: num_(r.kcal_100g), p: num_(r.protein_100g), c: num_(r.carbs_100g), f: num_(r.fat_100g), n: n,
     unit: un && ug > 0 ? { name: un, g: ug } : null
   };
 }
 function ingredientToFields_(i) {
-  return {
+  const f = {
     id: i.id, name: str_(i.name), kcal_100g: num_(i.kcal), protein_100g: num_(i.p), carbs_100g: num_(i.c), fat_100g: num_(i.f),
-    fibre_100g: isBlank_(i.fib) ? '' : num_(i.fib),
     unit_name: i.unit && i.unit.name ? str_(i.unit.name) : '', unit_g: i.unit && i.unit.g ? num_(i.unit.g) : ''
   };
+  const n = i.n || {};
+  NUTRIENTS_.forEach(function (d) { f[d[1]] = isBlank_(n[d[0]]) || isNaN(num_(n[d[0]], NaN)) ? '' : num_(n[d[0]]); });
+  return f;
 }
 
 function recipesFromRows_(recRows, itemRows) {
@@ -235,7 +246,7 @@ function recipesFromRows_(recRows, itemRows) {
     (items[id] = items[id] || []).push({ ing: str_(r.ingredient_id), g: num_(r.grams) });
   });
   return recRows.filter(function (r) { return str_(r.id); }).map(function (r) {
-    return { id: str_(r.id), name: str_(r.name), servings: Math.max(1, num_(r.servings, 1)), items: items[str_(r.id)] || [] };
+    return { id: str_(r.id), name: str_(r.name), servings: Math.max(1, num_(r.servings, 1)), cooked: num_(r.cooked_g, 0) > 0 ? num_(r.cooked_g) : null, items: items[str_(r.id)] || [] };
   });
 }
 
@@ -292,10 +303,12 @@ function routinesFromRows_(rows) {
 }
 
 function foodFromRow_(r, tz) {
+  let n = {};
+  try { const raw = str_(r.nutrients); if (raw) n = JSON.parse(raw) || {}; } catch (e) { n = {}; }
   return {
-    id: str_(r.id), date: toIsoDate_(r.date, tz), time: toHM_(r.time, tz) || '12:00', meal: str_(r.meal) || 'snack',
+    id: str_(r.id), date: toIsoDate_(r.date, tz), time: toHM_(r.time, tz) || '12:00',
     kind: str_(r.kind) === 'rec' ? 'rec' : 'ing', ref: str_(r.ref_id), qty: num_(r.qty), unit: str_(r.unit) || 'g',
-    name: str_(r.name), kcal: num_(r.kcal), p: num_(r.protein), c: num_(r.carbs), f: num_(r.fat)
+    name: str_(r.name), kcal: num_(r.kcal), p: num_(r.protein), c: num_(r.carbs), f: num_(r.fat), n: n
   };
 }
 /** Client entry/patch -> sheet fields. Only keys present in `e` are returned, so a patch only touches what it changes. */
@@ -304,7 +317,6 @@ function foodToFields_(e, tz) {
   if ('id' in e) f.id = e.id;
   if ('date' in e) f.date = fromIsoDate_(e.date, tz);
   if ('time' in e) f.time = toHM_(e.time) || '12:00';
-  if ('meal' in e) { if (MEALS_.indexOf(e.meal) < 0) throw new Error('Unknown meal "' + e.meal + '"'); f.meal = e.meal; }
   if ('kind' in e) { if (e.kind !== 'ing' && e.kind !== 'rec') throw new Error('Unknown kind "' + e.kind + '"'); f.kind = e.kind; }
   if ('ref' in e) f.ref_id = str_(e.ref);
   if ('name' in e) f.name = str_(e.name);
@@ -314,6 +326,11 @@ function foodToFields_(e, tz) {
   if ('p' in e) f.protein = round_(e.p, 2);
   if ('c' in e) f.carbs = round_(e.c, 2);
   if ('f' in e) f.fat = round_(e.f, 2);
+  if ('n' in e) {
+    const n = {};
+    NUTRIENTS_.forEach(function (d) { const v = e.n && e.n[d[0]]; if (!isBlank_(v) && !isNaN(num_(v, NaN))) n[d[0]] = round_(v, 4); });
+    f.nutrients = Object.keys(n).length ? JSON.stringify(n) : '';
+  }
   return f;
 }
 
@@ -321,10 +338,7 @@ function targetsFromSettings_(rows) {
   const s = {};
   rows.forEach(function (r) { if (str_(r.key)) s[str_(r.key)] = r.value; });
   return {
-    targets: {
-      kcal: num_(s.kcal, 2400), p: num_(s.protein_g, 160), c: num_(s.carbs_g, 260), f: num_(s.fat_g, 70),
-      water: Math.max(1, Math.round(num_(s.water_glasses, 10))), glassMl: num_(s.glass_ml, 250)
-    },
+    targets: { water: Math.max(1, Math.round(num_(s.water_glasses, 10))), glassMl: num_(s.glass_ml, 250) },
     rotation: isBlank_(s.rotation) ? ['push', 'pull', 'legs'] : splitList_(s.rotation),
     weightUnit: str_(s.weight_unit) || 'kg'
   };
@@ -591,6 +605,8 @@ function addFoodEntry(entry) {
     const realId = id && !isTmpId_(id) ? id : newId_('f');
     const e = Object.assign({}, entry, { id: realId, ref: resolveId_(entry.ref) });
     ['qty', 'kcal', 'p', 'c', 'f'].forEach(function (k) { if (!(k in e)) e[k] = 0; });
+    if (!('unit' in e)) e.unit = 'g';
+    if (!('kind' in e)) e.kind = 'ing';
     if (!('time' in e)) e.time = '12:00';
     appendObjects_(t, [foodToFields_(e, tz)]);
     rememberId_(id, realId);
@@ -645,7 +661,7 @@ function saveRecipe(rec) {
     const t = table_('Recipes');
     const id = resolveId_(rec.id), existing = id && !isTmpId_(id) ? findBy_(t, 'id', id) : null;
     const realId = existing ? id : (id && !isTmpId_(id) ? id : newId_('r'));
-    const fields = { id: realId, name: str_(rec.name), servings: Math.max(1, Math.round(num_(rec.servings, 1))) };
+    const fields = { id: realId, name: str_(rec.name), servings: Math.max(1, Math.round(num_(rec.servings, 1))), cooked_g: num_(rec.cooked, 0) > 0 ? num_(rec.cooked) : '' };
     if (existing) updateRow_(t, existing, fields); else appendObjects_(t, [fields]);
     const items = table_('RecipeItems');
     deleteRows_(items, items.rows.filter(function (r) { return str_(r.recipe_id) === realId; }));
@@ -654,7 +670,7 @@ function saveRecipe(rec) {
     appendObjects_(fresh, list);
     rememberId_(rec.id, realId);
     cacheBust_(['Recipes']);
-    return { id: realId, name: fields.name, servings: fields.servings, items: list.map(function (x) { return { ing: x.ingredient_id, g: x.grams }; }) };
+    return { id: realId, name: fields.name, servings: fields.servings, cooked: fields.cooked_g === '' ? null : fields.cooked_g, items: list.map(function (x) { return { ing: x.ingredient_id, g: x.grams }; }) };
   });
 }
 
@@ -776,8 +792,8 @@ function setup() {
   CTX_ = null;
   const seeds = {
     Settings: function () { return SETTINGS_DEFAULTS_.map(function (s) { return { key: s[0], value: s[1], notes: s[2] }; }); },
-    Ingredients: seedIngredients_, Recipes: function () { return seedRecipes_().recipes; }, RecipeItems: function () { return seedRecipes_().items; },
-    Exercises: seedExercises_, Routines: seedRoutines_
+    Ingredients: seedIngredients_, Exercises: seedExercises_, Routines: seedRoutines_,
+    Weights: function () { const tz = tz_(); return [{ date: fromIsoDate_(Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd'), tz), weight_kg: START_WEIGHT_KG_ }]; }
   };
   const created = [];
   Object.keys(SCHEMA_).forEach(function (name) {
@@ -806,6 +822,7 @@ function setup() {
     }
   });
   backfillGuide_(log);
+  migrateFood_(log);
   // remove the blank default tab if this run created the database
   const first = ss.getSheetByName('Sheet1');
   if (created.length && first && first.getLastRow() === 0 && first.getLastColumn() === 0 && ss.getSheets().length > 1) { ss.deleteSheet(first); log.push('Removed empty Sheet1'); }
@@ -835,6 +852,42 @@ function backfillGuide_(log) {
     if (Object.keys(patch).length) { updateRow_(t, r, patch); filled++; }
   });
   if (filled) log.push('Exercises: added how-to and region details for ' + filled + ' exercises');
+  CTX_ = null;
+}
+
+/**
+ * Brings an existing sheet up to date without touching what you entered:
+ *  - removes the five example recipes if they are still unchanged,
+ *  - adds the new foods that are missing (matched by id),
+ *  - fills blank vitamin / mineral cells of the original foods.
+ */
+function migrateFood_(log) {
+  CTX_ = null;
+  const rt = table_('Recipes'), it = table_('RecipeItems');
+  const gone = rt.rows.filter(function (r) { return DUMMY_RECIPES_[str_(r.id)] === str_(r.name); });
+  if (gone.length) {
+    const ids = gone.map(function (r) { return str_(r.id); });
+    deleteRows_(it, it.rows.filter(function (r) { return ids.indexOf(str_(r.recipe_id)) > -1; }));
+    deleteRows_(table_('Recipes'), table_('Recipes').rows.filter(function (r) { return ids.indexOf(str_(r.id)) > -1; }));
+    log.push('Recipes: removed ' + gone.length + ' example recipes');
+  }
+  CTX_ = null;
+  const t = table_('Ingredients'), have = {};
+  t.rows.forEach(function (r) { have[str_(r.id)] = true; });
+  const fresh = seedNewFoods_().filter(function (o) { return !have[o.id]; });
+  if (fresh.length) { appendObjects_(t, fresh); log.push('Ingredients: added ' + fresh.length + ' foods (fruits, vegetables, pulses, nuts, fish and more)'); }
+  CTX_ = null;
+  const t2 = table_('Ingredients');
+  if (NUTRIENTS_.some(function (d) { return t2.header.indexOf(d[1]) < 0; })) return;
+  let filled = 0;
+  t2.rows.forEach(function (r) {
+    const arr = FOOD_MICROS_[str_(r.id)];
+    if (!arr) return;
+    const patch = {}, all = microFields_(arr);
+    Object.keys(all).forEach(function (c) { if (isBlank_(r[c])) patch[c] = all[c]; });
+    if (Object.keys(patch).length) { updateRow_(t2, r, patch); filled++; }
+  });
+  if (filled) log.push('Ingredients: added vitamins and minerals for ' + filled + ' foods');
   CTX_ = null;
 }
 
@@ -1017,28 +1070,15 @@ const SEED_INGREDIENTS_ = [
   ['bhindi', 'Bhindi (okra)', 33, 1.9, 7.5, 0.2, 3.2]
 ];
 function seedIngredients_() {
-  return SEED_INGREDIENTS_.map(function (a) {
-    return { id: a[0], name: a[1], kcal_100g: a[2], protein_100g: a[3], carbs_100g: a[4], fat_100g: a[5], fibre_100g: a[6],
-      unit_name: a[7] || '', unit_g: a[8] || '', notes: 'Approximate values per 100 g' };
+  const base = SEED_INGREDIENTS_.map(function (a) {
+    return Object.assign({ id: a[0], name: a[1], kcal_100g: a[2], protein_100g: a[3], carbs_100g: a[4], fat_100g: a[5], fibre_100g: a[6],
+      unit_name: a[7] || '', unit_g: a[8] || '', notes: 'Approximate values per 100 g' }, microFields_(FOOD_MICROS_[a[0]]));
   });
+  return base.concat(seedNewFoods_());
 }
 
-/* Recipes from the design: raw grams per batch. */
-const SEED_RECIPES_ = [
-  ['r_curry', 'Chicken curry', 5, [['chicken', 1000], ['onion', 300], ['tomato', 300], ['curd', 150], ['oil', 40]]],
-  ['r_dal', 'Dal tadka', 5, [['toor', 250], ['onion', 100], ['tomato', 150], ['ghee', 30]]],
-  ['r_bhurji', 'Paneer bhurji', 3, [['paneer', 400], ['onion', 150], ['tomato', 150], ['oil', 20]]],
-  ['r_palak', 'Palak paneer', 4, [['spinach', 500], ['paneer', 300], ['onion', 100], ['ghee', 20], ['curd', 50]]],
-  ['r_chana', 'Chana masala', 4, [['chana', 600], ['onion', 200], ['tomato', 250], ['oil', 30]]]
-];
-function seedRecipes_() {
-  const recipes = [], items = [];
-  SEED_RECIPES_.forEach(function (r) {
-    recipes.push({ id: r[0], name: r[1], servings: r[2], notes: '' });
-    r[3].forEach(function (it) { items.push({ recipe_id: r[0], ingredient_id: it[0], grams: it[1] }); });
-  });
-  return { recipes: recipes, items: items };
-}
+/** Recipes the first version shipped as examples. Removed from sheets that still have them untouched. */
+const DUMMY_RECIPES_ = { r_curry: 'Chicken curry', r_dal: 'Dal tadka', r_bhurji: 'Paneer bhurji', r_palak: 'Palak paneer', r_chana: 'Chana masala' };
 
 /*
  * Exercises. [id, name, primary, secondary, equipment, movement, mechanic, base_kg, notes]

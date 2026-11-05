@@ -164,7 +164,7 @@ label.f{display:flex;flex-direction:column;gap:6px;min-width:0}
 .e-sub{font-size:12px;color:var(--ink3);margin-top:2px;display:flex;align-items:center;gap:6px}
 .e-r{text-align:right}
 .e-k{font:500 15px 'IBM Plex Mono',monospace}
-.mac{font:400 11px 'IBM Plex Mono',monospace;display:flex;gap:6px;justify-content:flex-end;margin-top:2px}
+.mac{font:400 11px 'IBM Plex Mono',monospace;display:flex;flex-wrap:wrap;gap:2px 8px;justify-content:flex-end;margin-top:2px}
 .saving{color:var(--ink3)}
 .errtag{color:var(--danger);display:flex;align-items:center;gap:6px}
 .retry{min-height:32px;padding:0 10px;border-radius:8px;border:1px solid var(--danger);color:var(--danger);font-size:12px;font-weight:600}
@@ -174,6 +174,8 @@ label.f{display:flex;flex-direction:column;gap:6px;min-width:0}
 .qty input:focus{outline:2px solid var(--accent);border-color:transparent}
 .qty .icon-btn{width:56px;height:64px;font-size:26px}
 .unitlbl{font:500 13px 'IBM Plex Mono',monospace;color:var(--ink3);text-align:center}
+.nutp{margin-top:8px}.nh{font:500 11px 'IBM Plex Mono',monospace;text-transform:uppercase;letter-spacing:.06em;color:var(--ink3);padding:14px 0 4px}.nrow{display:flex;justify-content:space-between;gap:12px;padding:7px 0;border-top:1px solid var(--line);font-size:14px}
+.e-k small,.preview small{font:400 10px 'IBM Plex Mono',monospace;opacity:.6}
 .preview{display:grid;grid-template-columns:1.3fr 1fr 1fr 1fr;gap:8px;background:var(--sunk);border-radius:12px;padding:12px;margin:14px 0}
 .preview div{display:flex;flex-direction:column;gap:4px}
 .preview b{font:500 20px 'IBM Plex Mono',monospace;letter-spacing:-.02em}
@@ -238,7 +240,7 @@ label.f{display:flex;flex-direction:column;gap:6px;min-width:0}
 .rtable td,.rtable th{padding:8px 0;border-top:1px solid var(--line);text-align:right;font-family:'IBM Plex Mono',monospace;font-weight:500}
 .rtable th{font-family:inherit;font-weight:400;color:var(--ink3);text-align:left;font-size:12px}
 .rtable td:first-child{text-align:left;font-family:'IBM Plex Sans',sans-serif;color:var(--ink2);font-weight:400}
-.ingrow{display:grid;grid-template-columns:minmax(0,1fr) 84px 52px 36px;gap:8px;align-items:center;min-height:52px;border-top:1px solid var(--line)}
+.ingrow{display:grid;grid-template-columns:minmax(0,1fr) 76px 74px 36px;gap:8px;align-items:center;min-height:52px;border-top:1px solid var(--line)}
 .ingrow .cell{font-size:15px}
 .err-msg{color:var(--danger);font-size:13px}
 @media (min-width:960px){
@@ -391,21 +393,38 @@ const api = (function () {
 /* ===================== helpers ===================== */
 function iso(d) { const z = new Date(d); return z.getFullYear() + '-' + String(z.getMonth() + 1).padStart(2, '0') + '-' + String(z.getDate()).padStart(2, '0'); }
 function addDays(s, n) { const d = new Date(s + 'T12:00:00'); d.setDate(d.getDate() + n); return iso(d); }
+/* Every extra nutrient the app tracks, per group: [key, label, unit]. Keys match NUTRIENTS_ in Code.gs. */
+const NUTS = [
+  ['Carbohydrates in detail', [['fib','Fibre','g'],['sugar','Sugar','g']]],
+  ['Fats in detail', [['satfat','Saturated fat','g'],['monofat','Monounsaturated fat','g'],['polyfat','Polyunsaturated fat','g'],['chol','Cholesterol','mg']]],
+  ['Minerals', [['na','Sodium','mg'],['k','Potassium','mg'],['ca','Calcium','mg'],['fe','Iron','mg'],['mg','Magnesium','mg'],['phos','Phosphorus','mg'],['zn','Zinc','mg'],['cu','Copper','mg'],['mn','Manganese','mg'],['se','Selenium','µg']]],
+  ['Vitamins', [['vita','Vitamin A','µg'],['vitc','Vitamin C','mg'],['vitd','Vitamin D','µg'],['vite','Vitamin E','mg'],['vitk','Vitamin K','µg'],['b1','Thiamin (B1)','mg'],['b2','Riboflavin (B2)','mg'],['b3','Niacin (B3)','mg'],['b5','Pantothenic acid (B5)','mg'],['b6','Vitamin B6','mg'],['b7','Biotin (B7)','µg'],['b9','Folate (B9)','µg'],['b12','Vitamin B12','µg'],['choline','Choline','mg']]]
+];
+const NKEYS = NUTS.flatMap(g => g[1].map(x => x[0]));
+function addN(a, b, k) { const o = { ...(a || {}) }; NKEYS.forEach(key => { if (b && b[key] != null) o[key] = (o[key] || 0) + b[key] * (k == null ? 1 : k); }); return o; }
 function recipeTotals(r, db) {
-  const t = { kcal:0, p:0, c:0, f:0, fib:0, g:0 };
-  (r.items || []).forEach(it => { const i = db.ingredients.find(x => x.id === it.ing); const g = parseFloat(it.g) || 0; if (!i) return; const k = g / 100; t.kcal += i.kcal * k; t.p += i.p * k; t.c += i.c * k; t.f += i.f * k; t.fib += (i.fib || 0) * k; t.g += g; });
+  const t = { kcal:0, p:0, c:0, f:0, n:{}, g:0, w:0 };
+  (r.items || []).forEach(it => { const i = db.ingredients.find(x => x.id === it.ing); const g = parseFloat(it.g) || 0; if (!i) return; const k = g / 100; t.kcal += i.kcal * k; t.p += i.p * k; t.c += i.c * k; t.f += i.f * k; t.n = addN(t.n, i.n, k); t.g += g; });
+  t.w = (parseFloat(r.cooked) || 0) > 0 ? parseFloat(r.cooked) : t.g;
   return t;
+}
+/** Grams in one unit of this entry: 1 for grams, a piece for countable foods, a share of the finished dish for servings. */
+function unitGrams(o, unit) {
+  if (unit === 'g') return 1;
+  if (o.kind === 'ing') { const i = S.db.ingredients.find(x => x.id === o.ref); return i && i.unit ? i.unit.g : 100; }
+  const r = S.db.recipes.find(x => x.id === o.ref); return r ? recipeTotals(r, S.db).w / r.servings : 100;
 }
 function calc(kind, ref, qty, unit, db) {
   qty = parseFloat(qty) || 0;
+  const none = { kcal:0, p:0, c:0, f:0, n:{} };
   if (kind === 'ing') {
-    const i = db.ingredients.find(x => x.id === ref); if (!i) return { kcal:0, p:0, c:0, f:0 };
+    const i = db.ingredients.find(x => x.id === ref); if (!i) return none;
     const k = (unit === 'pc' ? qty * (i.unit ? i.unit.g : 100) : qty) / 100;
-    return { kcal: i.kcal * k, p: i.p * k, c: i.c * k, f: i.f * k };
+    return { kcal: i.kcal * k, p: i.p * k, c: i.c * k, f: i.f * k, n: addN({}, i.n, k) };
   }
-  const r = db.recipes.find(x => x.id === ref); if (!r) return { kcal:0, p:0, c:0, f:0 };
-  const t = recipeTotals(r, db), k = unit === 'srv' ? qty / r.servings : qty / (t.g || 1);
-  return { kcal: t.kcal * k, p: t.p * k, c: t.c * k, f: t.f * k };
+  const r = db.recipes.find(x => x.id === ref); if (!r) return none;
+  const t = recipeTotals(r, db), k = unit === 'srv' ? qty / r.servings : qty / (t.w || 1);
+  return { kcal: t.kcal * k, p: t.p * k, c: t.c * k, f: t.f * k, n: addN({}, t.n, k) };
 }
 function refName(kind, ref, db) { const x = (kind === 'ing' ? db.ingredients : db.recipes).find(x => x.id === ref); return x ? x.name : 'Unknown'; }
 
@@ -415,19 +434,16 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&':'&amp
 const fmt = n => Math.round(n || 0).toLocaleString('en-IN');
 const r1 = n => Math.round(n * 10) / 10;
 const kg = n => String(Math.round((+n || 0) * 100) / 100);
-const sumN = a => a.reduce((t, e) => ({ kcal: t.kcal + e.kcal, p: t.p + e.p, c: t.c + e.c, f: t.f + e.f }), { kcal:0, p:0, c:0, f:0 });
+const sumN = a => a.reduce((t, e) => ({ kcal: t.kcal + e.kcal, p: t.p + e.p, c: t.c + e.c, f: t.f + e.f, n: addN(t.n, e.n) }), { kcal:0, p:0, c:0, f:0, n:{} });
 const e1rm = (w, r) => r <= 1 ? w : w * (1 + r / 30);
 function rollingAvg(vals, n) { return vals.map((_, i) => { const v = vals.slice(Math.max(0, i - n + 1), i + 1).filter(x => x != null); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; }); }
 const strip = o => JSON.parse(JSON.stringify(o, (k, v) => k.startsWith('_') ? undefined : v));
 function dayLabel(s, opt) { return new Date(s + 'T12:00:00').toLocaleDateString('en-GB', opt || { weekday:'short', day:'numeric', month:'short' }); }
 function relDay(s) { const d = Math.round((new Date(s + 'T12:00:00') - new Date(TODAY + 'T12:00:00')) / 864e5); return d === 0 ? 'Today' : d === -1 ? 'Yesterday' : d > 0 ? 'In ' + d + ' days' : (-d) + ' days ago'; }
 function nowHM() { const d = new Date(); return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); }
-function mealForTime(hm) { const [h, mi] = hm.split(':').map(Number), t = h + mi / 60; return t < 10.5 ? 'breakfast' : t < 15.5 ? 'lunch' : t < 18.5 ? 'snack' : 'dinner'; }
 function weekStart(d) { const x = new Date(d + 'T12:00:00'); return addDays(d, -((x.getDay() + 6) % 7)); }
 function clock(ms) { const s = Math.max(0, Math.floor(ms / 1000)), h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), ss = s % 60; return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(ss).padStart(2, '0'); }
 
-const MEALS = [['breakfast','Breakfast'],['lunch','Lunch'],['snack','Snack'],['dinner','Dinner'],['pre','Pre-workout'],['post','Post-workout']];
-const mealName = k => (MEALS.find(m => m[0] === k) || [, k])[1];
 const MUSCLES = { chest:'Chest', lats:'Lats', upper_back:'Upper back', lower_back:'Lower back', front_delts:'Front delts', side_delts:'Side delts', rear_delts:'Rear delts', biceps:'Biceps', triceps:'Triceps', forearms:'Forearms', abs:'Abs / Core', quads:'Quads', hamstrings:'Hamstrings', glutes:'Glutes', calves:'Calves' };
 const GROUPS = [['chest','Chest',['chest']],['back','Back',['lats','upper_back','lower_back']],['shoulders','Shoulders',['front_delts','side_delts','rear_delts']],['biceps','Biceps',['biceps']],['triceps','Triceps',['triceps']],['forearms','Forearms',['forearms']],['abs','Abs / Core',['abs']],['quads','Quads',['quads']],['hamstrings','Hamstrings',['hamstrings']],['glutes','Glutes',['glutes']],['calves','Calves',['calves']]];
 const EQUIP = ['barbell','dumbbell','cable','machine','bodyweight'];
@@ -541,7 +557,7 @@ function syncMap(spec) {
 /* ===================== state ===================== */
 const S = {
   tab: 'today', loading: true, db: null, saving: 0, savedAt: 0,
-  food: { seg: 'log', q: '', meal: mealForTime(nowHM()), date: TODAY, addDate: TODAY, ingQ: '' },
+  food: { seg: 'day', q: '', date: TODAY, addDate: TODAY, ingQ: '', nutOpen: false },
   gym: { bank: false },
   ex: { region: null, view: 'front', detail: null, hist: null, from: null },
   wo: { active: null, summary: null },
@@ -638,7 +654,7 @@ function muscleSets(from, to) {
   return s;
 }
 function weekStats(ws) {
-  const we = addDays(ws, 6), t = S.db.targets;
+  const we = addDays(ws, 6);
   const days = []; for (let i = 0; i < 7; i++) { const d = addDays(ws, i); if (d < TODAY) days.push(d); }
   const tots = days.map(d => dayLog(d)).filter(l => l.length).map(sumN);
   const avg = k => tots.length ? tots.reduce((a, x) => a + x[k], 0) / tots.length : null;
@@ -646,7 +662,7 @@ function weekStats(ws) {
   let sets = 0, vol = 0; wos.forEach(w => w.ex.forEach(x => x.sets.forEach(s => { sets++; vol += (+s.w) * (+s.r); })));
   const wts = S.db.weights.filter(w => w.date >= ws && w.date <= we).map(w => w.kg);
   const sl = S.db.wellness.filter(w => w.date >= ws && w.date <= we);
-  return { ws, logged: tots.length, kcal: avg('kcal'), p: avg('p'), protHit: tots.filter(x => x.p >= t.p * .95).length, wos: wos.length, sets, vol,
+  return { ws, logged: tots.length, kcal: avg('kcal'), p: avg('p'), wos: wos.length, sets, vol,
            wAvg: wts.length ? wts.reduce((a, b) => a + b, 0) / wts.length : null,
            sleep: sl.length ? sl.reduce((a, b) => a + b.sleep, 0) / sl.length : null };
 }
@@ -695,13 +711,32 @@ function header(title, eyebrow, right) {
   <div class="row">${right || ''}<button class="icon-btn" data-a="settings" aria-label="Settings"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg></button></div></header>`;
 }
 function macroLine(n) {
-  return `<div class="mac"><span style="color:var(--protein)">P ${Math.round(n.p)}</span><span style="color:var(--carbs)">C ${Math.round(n.c)}</span><span style="color:var(--fat)">F ${Math.round(n.f)}</span></div>`;
+  return `<div class="mac"><span style="color:var(--protein)">${r1(n.p)} g protein</span><span style="color:var(--carbs)">${r1(n.c)} g carbs</span><span style="color:var(--fat)">${r1(n.f)} g fat</span></div>`;
 }
-function entryRow(e, showTime) {
+function entryRow(e) {
   const k = 'food:' + e.id;
   return `<div class="entry" data-a="editEntry" data-id="${e.id}" role="button" tabindex="0">
-    <div class="e-main"><div class="e-name">${esc(e.name)}</div><div class="e-sub mono">${esc(qtyLabel(e))}${showTime ? ' · ' + e.time : ''} ${statusTag(e, k)}</div></div>
-    <div class="e-r"><div class="e-k">${fmt(e.kcal)}</div>${macroLine(e)}</div></div>`;
+    <div class="e-main"><div class="e-name">${esc(e.name)}</div><div class="e-sub mono">${esc(qtyLabel(e))} ${statusTag(e, k)}</div></div>
+    <div class="e-r"><div class="e-k">${fmt(e.kcal)} <small>kcal</small></div>${macroLine(e)}</div></div>`;
+}
+const fmtN = v => v >= 100 ? String(Math.round(v)) : v >= 10 ? String(r1(v)) : String(Math.round(v * 100) / 100);
+/** Four headline numbers for a set of foods. Carbs include fibre. */
+function summaryGrid(tot) {
+  return `<div class="grid2" style="grid-template-columns:repeat(4,minmax(0,1fr))">
+    <div class="stat"><span class="eyebrow">Calories</span><b>${fmt(tot.kcal)}</b><span class="delta">kcal</span></div>
+    <div class="stat"><span class="mtag"><i class="dot" style="background:var(--protein)"></i>Protein</span><b>${Math.round(tot.p)}</b><span class="delta">g</span></div>
+    <div class="stat"><span class="mtag"><i class="dot" style="background:var(--carbs)"></i>Carbs</span><b>${Math.round(tot.c)}</b><span class="delta">g</span></div>
+    <div class="stat"><span class="mtag"><i class="dot" style="background:var(--fat)"></i>Fat</span><b>${Math.round(tot.f)}</b><span class="delta">g</span></div></div>`;
+}
+/** Every nutrient we have for a set of foods. "—" means none of the foods has data for it. */
+function nutRows(tot) {
+  const row = (l, v, u) => `<div class="nrow"><span>${l}</span><b class="mono">${v == null ? '—' : fmtN(v) + ' ' + u}</b></div>`;
+  return `<div class="nutp"><div class="nh">Energy and macros</div>${row('Calories', tot.kcal, 'kcal')}${row('Protein', tot.p, 'g')}${row('Carbohydrates (includes fibre)', tot.c, 'g')}${row('Fat', tot.f, 'g')}
+    ${NUTS.map(([gl, items]) => `<div class="nh">${gl}</div>${items.map(([k, l, u]) => row(l, tot.n && tot.n[k] != null ? tot.n[k] : null, u)).join('')}`).join('')}
+    <div class="faint" style="font-size:11px;margin-top:8px">— means none of these foods has a value for it, so it counts as 0.</div></div>`;
+}
+function nutPanel(tot) {
+  return `<button class="btn ghost block mt12" data-a="toggleNut">${S.food.nutOpen ? 'Hide' : 'Show'} all nutrients · vitamins, minerals, fats</button>${S.food.nutOpen ? nutRows(tot) : ''}`;
 }
 function skeleton() {
   return `<header class="top"><div style="width:60%"><div class="skel" style="height:11px;width:50%"></div><div class="skel mt8" style="height:30px;width:70%"></div></div></header>
@@ -710,12 +745,10 @@ function skeleton() {
 
 /* ===================== TODAY ===================== */
 function vToday() {
-  const t = S.db.targets, log = dayLog(TODAY), tot = sumN(log), rem = t.kcal - tot.kcal;
-  const C = 2 * Math.PI * 56, pct = Math.min(1, tot.kcal / t.kcal);
-  const macro = (lbl, k, col) => `<div class="macro"><div class="row sb"><span class="row" style="gap:8px"><i class="dot" style="background:var(${col})"></i>${lbl}</span><span class="num"><b>${Math.round(tot[k])}</b> / ${t[k]} g</span></div><div class="bar"><i style="width:${Math.min(100, tot[k] / t[k] * 100)}%;background:var(${col})"></i></div></div>`;
+  const t = S.db.targets, log = dayLog(TODAY), tot = sumN(log);
   const water = S.db.water[TODAY] || 0;
   const lw = lastWeight(), todayW = S.db.weights.find(w => w.date === TODAY);
-  const draft = S.weightDraft != null ? S.weightDraft : (todayW ? todayW.kg : lw ? lw.kg : 75);
+  const draft = S.weightDraft != null ? S.weightDraft : (todayW ? todayW.kg : lw ? lw.kg : 50);
   // workout card
   const doneToday = S.db.workouts.find(w => w.date === TODAY), act = S.wo.active, nr = S.db.routines.find(r => r.id === nextRoutine());
   const cons = consistency();
@@ -724,21 +757,15 @@ function vToday() {
   else if (doneToday) { let vol = 0, sets = 0; doneToday.ex.forEach(x => x.sets.forEach(s => { vol += s.w * s.r; sets++; })); wo = `<div class="eyebrow">Workout done ${statusTag(doneToday, 'wo:' + doneToday.id)}</div><div class="row sb mt8"><h2>✓ ${esc(doneToday.name)}</h2></div><div class="stats3 mt12"><div class="stat"><span class="eyebrow">Time</span><b>${doneToday.dur}m</b></div><div class="stat"><span class="eyebrow">Sets</span><b>${sets}</b></div><div class="stat"><span class="eyebrow">Volume</span><b>${fmt(vol)}</b></div></div>`; }
   else if (!nr) wo = `<div class="eyebrow">Workout</div><div class="row sb mt8"><h2>No routine in rotation</h2></div><button class="btn primary block lg mt12" data-a="startWorkout" data-r="empty">Empty workout</button>`;
   else wo = `<div class="eyebrow">Up next in rotation</div><div class="row sb mt8"><h2>${esc(nr.name)} day</h2><span class="mono faint">${nr.ex.length} exercises</span></div><button class="btn primary block lg mt12" data-a="startWorkout" data-r="${nr.id}">Start ${esc(nr.name)} day</button>`;
-  const meals = MEALS.map(([k, n]) => {
-    const es = log.filter(e => e.meal === k), s = sumN(es);
-    return `<div class="meal"><div class="meal-h"><div class="row"><h3>${n}</h3>${es.length ? `<span class="mono faint" style="font-size:13px">${fmt(s.kcal)} kcal</span>` : ''}</div><button class="icon-btn acc" data-a="mealAdd" data-m="${k}" aria-label="Add to ${n}">+</button></div>
-    ${es.length ? es.map(e => entryRow(e)).join('') : `<div class="empty-line">Nothing logged</div>`}</div>`;
-  }).join('');
   return `${header('Today')}
   <div class="cols">
     <section class="card span2">
-      <div class="cal">
-        <div class="ring"><svg viewBox="0 0 128 128"><circle cx="64" cy="64" r="56" fill="none" style="stroke:var(--sunk)" stroke-width="10"/><circle cx="64" cy="64" r="56" fill="none" style="stroke:${rem < 0 ? 'var(--danger)' : 'var(--accent)'};transition:stroke-dasharray .5s" stroke-width="10" stroke-linecap="round" stroke-dasharray="${(C * pct).toFixed(1)} ${C.toFixed(1)}"/></svg>
-          <div class="ring-c"><div class="big num">${fmt(Math.abs(rem))}</div><div class="eyebrow">${rem >= 0 ? 'kcal left' : 'kcal over'}</div></div></div>
-        <dl class="cal-stats"><div><dt class="eyebrow">Eaten</dt><dd>${fmt(tot.kcal)}</dd></div><div><dt class="eyebrow">Target</dt><dd class="muted">${fmt(t.kcal)}</dd></div></dl>
-      </div>
-      <div class="stack mt16">${macro('Protein','p','--protein')}${macro('Carbs','c','--carbs')}${macro('Fat','f','--fat')}</div>
+      <div class="row sb"><h2>Eaten today</h2><span class="mono faint" style="font-size:13px">${log.length} ${log.length === 1 ? 'food' : 'foods'}</span></div>
+      <div class="mt12">${summaryGrid(tot)}</div>
+      ${nutPanel(tot)}
     </section>
+    <section class="card span2"><div class="row sb"><h2>Foods</h2><button class="btn sm primary" data-a="fab">+ Add food</button></div>
+      ${log.length ? log.map(e => entryRow(e)).join('') : `<div class="empty-line">Nothing logged yet today. Add what you eat with its weight in grams.</div>`}</section>
     <div class="pair span2">
       <section class="card">
         <div class="eyebrow">Water</div>
@@ -757,13 +784,12 @@ function vToday() {
       <div class="row sb mt16"><span class="eyebrow">Last 14 days</span><span class="mono faint" style="font-size:12px">${cons.n} of ${cons.planned} planned · 4 wks</span></div>
       <div class="days mt8">${cons.days.map(d => `<i class="${d.on ? 'on' : ''} ${d.d === TODAY ? 'today' : ''}" title="${d.d}"></i>`).join('')}</div>
     </section>
-    <section class="card span2"><div class="row sb"><h2>Meals</h2><span class="mono faint" style="font-size:13px">${log.length} entries</span></div>${meals}</section>
   </div>`;
 }
 
 /* ===================== FOOD ===================== */
 function vFood() {
-  const segs = [['log','Log'],['day','Day'],['recipes','Recipes'],['ingredients','Ingredients']];
+  const segs = [['day','Day'],['log','Add'],['recipes','Recipes'],['ingredients','Foods']];
   const body = { log: foodLogView, day: foodDayView, recipes: recipesView, ingredients: ingredientsView }[S.food.seg]();
   return `${header('Food')}<div class="seg" role="tablist">${segs.map(([k, l]) => `<button class="${S.food.seg === k ? 'on' : ''}" data-a="foodSeg" data-s="${k}">${l}</button>`).join('')}</div>${body}`;
 }
@@ -771,47 +797,43 @@ function foodLogView() {
   const q = S.food.q.trim().toLowerCase(), db = S.db;
   const chip = e => `<button class="chip" data-a="quick" data-kind="${e.kind}" data-ref="${e.ref}" data-qty="${e.qty}" data-unit="${e.unit}">${esc(e.name.replace(/ \(.*\)|,.*$/, ''))}<span class="q">${esc(qtyLabel(e))}</span></button>`;
   const rec = db.recipes.filter(r => !q || r.name.toLowerCase().includes(q));
-  const ing = db.ingredients.filter(i => !q || i.name.toLowerCase().includes(q));
-  const row = (kind, x) => { const sub = kind === 'rec' ? (() => { const t = recipeTotals(x, db); return `Recipe · ${fmt(t.kcal / x.servings)} kcal / serving`; })() : `${fmt(x.kcal)} kcal / 100 g${x.unit ? ' · 1 ' + x.unit.name + ' = ' + x.unit.g + ' g' : ''}`;
+  const ing = db.ingredients.filter(i => !q || i.name.toLowerCase().includes(q)).sort((a, b) => a.name.localeCompare(b.name));
+  const row = (kind, x) => { const sub = kind === 'rec' ? (() => { const t = recipeTotals(x, db); return `Your recipe · ${fmt(t.kcal / (t.w || 1) * 100)} kcal per 100 g`; })() : `${fmt(x.kcal)} kcal per 100 g${x.unit ? ' · 1 ' + x.unit.name + ' = ' + x.unit.g + ' g' : ''}`;
     return `<button class="list-row" data-a="pickFood" data-kind="${kind}" data-ref="${x.id}"><div class="e-main"><div class="e-name">${esc(x.name)}</div><div class="e-sub">${sub}</div></div><span class="chev">+</span></button>`; };
-  const notToday = S.food.addDate !== TODAY;
+  const notToday = S.food.addDate !== TODAY, recent = recentFoods(), freq = frequentFoods();
   return `<div class="stack mt16">
     ${notToday ? `<div class="card row sb" style="padding:10px 12px"><span>Adding to <b>${dayLabel(S.food.addDate)}</b></span><button class="btn sm" data-a="addToday">Back to today</button></div>` : ''}
-    <div><div class="eyebrow">Log to</div><div class="chips scroll mt8">${MEALS.map(([k, n]) => `<button class="chip ${S.food.meal === k ? 'on' : ''}" data-a="setMeal" data-m="${k}">${n}</button>`).join('')}</div></div>
-    <input class="input" type="search" data-in="foodQ" data-k="foodQ" placeholder="Search dal, roti, paneer…" value="${esc(S.food.q)}" aria-label="Search foods">
-    ${!q ? `<div><div class="row sb"><span class="eyebrow">Recent · tap to log</span></div><div class="chips scroll mt8">${recentFoods().map(chip).join('')}</div></div>
-    <div><div class="eyebrow">Frequent</div><div class="chips scroll mt8">${frequentFoods().map(chip).join('')}</div></div>` : ''}
+    <input class="input" type="search" data-in="foodQ" data-k="foodQ" placeholder="Search apple, roti, dal…" value="${esc(S.food.q)}" aria-label="Search foods">
+    ${!q && recent.length ? `<div><div class="row sb"><span class="eyebrow">Recent · tap to log the same amount again</span></div><div class="chips scroll mt8">${recent.map(chip).join('')}</div></div>` : ''}
+    ${!q && freq.length ? `<div><div class="eyebrow">Frequent</div><div class="chips scroll mt8">${freq.map(chip).join('')}</div></div>` : ''}
     <section class="card" style="padding:4px 16px">
-      ${rec.length + ing.length === 0 ? `<div class="empty"><div>No match for <b>“${esc(S.food.q)}”</b></div><button class="btn" data-a="newIng" data-name="${esc(S.food.q)}">Create ingredient “${esc(S.food.q)}”</button></div>` : ''}
-      ${rec.length ? `<div class="eyebrow" style="padding:12px 0 4px">Recipes</div>${rec.map(r => row('rec', r)).join('')}` : ''}
-      ${ing.length ? `<div class="eyebrow" style="padding:14px 0 4px">Ingredients</div>${ing.map(i => row('ing', i)).join('')}` : ''}
+      ${rec.length + ing.length === 0 ? `<div class="empty"><div>No match for <b>“${esc(S.food.q)}”</b></div><button class="btn" data-a="newIng" data-name="${esc(S.food.q)}">Add “${esc(S.food.q)}” as a food</button></div>` : ''}
+      ${rec.length ? `<div class="eyebrow" style="padding:12px 0 4px">Your recipes</div>${rec.map(r => row('rec', r)).join('')}` : ''}
+      ${ing.length ? `<div class="eyebrow" style="padding:14px 0 4px">Foods</div>${ing.map(i => row('ing', i)).join('')}` : ''}
     </section></div>`;
 }
 function foodDayView() {
-  const d = S.food.date, log = dayLog(d), tot = sumN(log), t = S.db.targets;
-  const groups = MEALS.map(([k, n]) => [n, log.filter(e => e.meal === k)]).filter(g => g[1].length);
+  const d = S.food.date, log = dayLog(d), tot = sumN(log);
   return `<div id="swipe"><div class="daynav"><button class="icon-btn" data-a="dayNav" data-d="-1" aria-label="Previous day">‹</button><div class="c"><div class="eyebrow">${relDay(d)}</div><b>${dayLabel(d, { weekday:'long', day:'numeric', month:'short' })}</b></div><button class="icon-btn" data-a="dayNav" data-d="1" aria-label="Next day" ${d >= TODAY ? 'disabled' : ''}>›</button></div>
-  <section class="card"><div class="grid2" style="grid-template-columns:repeat(4,minmax(0,1fr))">
-    <div class="stat"><span class="eyebrow">kcal</span><b>${fmt(tot.kcal)}</b><span class="delta">/ ${fmt(t.kcal)}</span></div>
-    <div class="stat"><span class="mtag"><i class="dot" style="background:var(--protein)"></i>Prot</span><b>${Math.round(tot.p)}</b><span class="delta">/ ${t.p} g</span></div>
-    <div class="stat"><span class="mtag"><i class="dot" style="background:var(--carbs)"></i>Carb</span><b>${Math.round(tot.c)}</b><span class="delta">/ ${t.c} g</span></div>
-    <div class="stat"><span class="mtag"><i class="dot" style="background:var(--fat)"></i>Fat</span><b>${Math.round(tot.f)}</b><span class="delta">/ ${t.f} g</span></div></div></section>
-  <section class="card mt12">${S.dayLoading === d ? '<div class="skel" style="height:52px"></div><div class="skel mt8" style="height:52px"></div>' : groups.length ? groups.map(([n, es]) => `<div class="meal"><div class="meal-h"><h3>${n}</h3><span class="mono faint" style="font-size:13px">${fmt(sumN(es).kcal)} kcal</span></div>${es.map(e => entryRow(e, true)).join('')}</div>`).join('')
-    : `<div class="empty"><b>No entries for this day</b><span>Nothing was logged on ${dayLabel(d)}.</span></div>`}</section>
-  <button class="btn block mt12" data-a="dayAdd">+ Add food to this day</button>
-  <div class="faint mono" style="font-size:11px;text-align:center;margin-top:12px">Swipe left or right to change day · tap an entry to edit</div></div>`;
+  <section class="card">${summaryGrid(tot)}${nutPanel(tot)}</section>
+  <section class="card mt12">${S.dayLoading === d ? '<div class="skel" style="height:52px"></div><div class="skel mt8" style="height:52px"></div>' : log.length ? log.map(e => entryRow(e)).join('')
+    : `<div class="empty"><b>No foods for this day</b><span>Nothing was logged on ${dayLabel(d)}.</span></div>`}</section>
+  <button class="btn primary block mt12" data-a="dayAdd">+ Add food to ${d === TODAY ? 'today' : 'this day'}</button>
+  <div class="faint mono" style="font-size:11px;text-align:center;margin-top:12px">Swipe left or right to change day · tap a food to edit</div></div>`;
 }
 function recipesView() {
+  const rs = S.db.recipes;
   return `<div class="stack mt16"><button class="btn primary block" data-a="newRecipe">+ New recipe</button>
-  ${S.db.recipes.map(r => { const t = recipeTotals(r, S.db), ps = { kcal: t.kcal / r.servings, p: t.p / r.servings, c: t.c / r.servings, f: t.f / r.servings };
-    return `<button class="card" style="text-align:left" data-a="editRecipe" data-id="${r.id}"><div class="row sb"><div><h3>${esc(r.name)} ${statusTag(r, 'rec:' + r.id)}</h3><div class="e-sub">${r.items.length} ingredients · ${r.servings} servings · ${fmt(t.g)} g batch</div></div><div class="e-r"><div class="e-k">${fmt(ps.kcal)}</div><div class="delta">kcal / srv</div></div></div>
-    <div class="row sb mt8"><span class="faint" style="font-size:12px">Per serving</span>${macroLine(ps)}</div></button>`; }).join('')}</div>`;
+  ${rs.length ? rs.map(r => { const t = recipeTotals(r, S.db), k = 100 / (t.w || 1), per = { kcal: t.kcal * k, p: t.p * k, c: t.c * k, f: t.f * k };
+    return `<button class="card" style="text-align:left" data-a="editRecipe" data-id="${r.id}"><div class="row sb"><div><h3>${esc(r.name)} ${statusTag(r, 'rec:' + r.id)}</h3><div class="e-sub">${r.items.length} ingredients · ${fmt(t.w)} g${r.cooked ? ' finished' : ' raw total'}</div></div><div class="e-r"><div class="e-k">${fmt(per.kcal)}</div><div class="delta">kcal per 100 g</div></div></div>
+    <div class="row sb mt8"><span class="faint" style="font-size:12px">Per 100 g</span>${macroLine(per)}</div></button>`; }).join('')
+    : `<div class="empty"><b>No recipes yet</b><span>Add the ingredients you cook with and the weight of the finished dish. Then you can log it by weight, like “roti sabji 250 g”.</span></div>`}</div>`;
 }
 function ingredientsView() {
   const q = S.food.ingQ.trim().toLowerCase(), list = S.db.ingredients.filter(i => !q || i.name.toLowerCase().includes(q)).sort((a, b) => a.name.localeCompare(b.name));
-  return `<div class="stack mt16"><div class="row"><input class="input" type="search" data-in="ingQ" data-k="ingQ" placeholder="Search ingredients" value="${esc(S.food.ingQ)}"><button class="btn primary" data-a="newIng" data-name="${esc(S.food.ingQ)}">+ New</button></div>
-  <section class="card" style="padding:4px 16px">${list.length ? list.map(i => `<button class="list-row" data-a="editIng" data-id="${i.id}"><div class="e-main"><div class="e-name">${esc(i.name)} ${statusTag(i, 'ing:' + i.id)}</div><div class="e-sub mono">per 100 g${i.unit ? ' · 1 ' + esc(i.unit.name) + ' = ' + i.unit.g + ' g' : ''}</div></div><div class="e-r"><div class="e-k">${fmt(i.kcal)}</div>${macroLine(i)}</div></button>`).join('')
-    : `<div class="empty"><b>No ingredients match</b><button class="btn" data-a="newIng" data-name="${esc(S.food.ingQ)}">Create “${esc(S.food.ingQ)}”</button></div>`}</section></div>`;
+  return `<div class="stack mt16"><div class="row"><input class="input" type="search" data-in="ingQ" data-k="ingQ" placeholder="Search foods" value="${esc(S.food.ingQ)}"><button class="btn primary" data-a="newIng" data-name="${esc(S.food.ingQ)}">+ New</button></div>
+  <section class="card" style="padding:4px 16px">${list.length ? list.map(i => `<button class="list-row" data-a="editIng" data-id="${i.id}"><div class="e-main"><div class="e-name">${esc(i.name)} ${statusTag(i, 'ing:' + i.id)}</div><div class="e-sub mono">per 100 g${i.unit ? ' · 1 ' + esc(i.unit.name) + ' = ' + i.unit.g + ' g' : ''}</div></div><div class="e-r"><div class="e-k">${fmt(i.kcal)} <small>kcal</small></div>${macroLine(i)}</div></button>`).join('')
+    : `<div class="empty"><b>No foods match</b><button class="btn" data-a="newIng" data-name="${esc(S.food.ingQ)}">Add “${esc(S.food.ingQ)}”</button></div>`}</section></div>`;
 }
 
 /* ===================== WORKOUT ===================== */
@@ -968,7 +990,7 @@ function exerciseDetail() {
 
 /* ===================== PROGRESS ===================== */
 function vProgress() {
-  const db = S.db, t = db.targets;
+  const db = S.db;
   // weight
   const N = 60, wDays = Array.from({ length: N }, (_, i) => addDays(TODAY, i - N + 1)), wmap = Object.fromEntries(db.weights.map(w => [w.date, w.kg]));
   const daily = wDays.map(d => wmap[d] ?? null), avg7 = rollingAvg(daily, 7);
@@ -991,7 +1013,7 @@ function vProgress() {
     <div class="sum2 mt12"><div><div class="eyebrow" style="margin-bottom:4px">Food</div>
       ${kv('Avg kcal', cur.kcal != null ? fmt(cur.kcal) : '—', dlt(cur.kcal, prev.kcal, fmt))}
       ${kv('Avg protein', cur.p != null ? Math.round(cur.p) + ' g' : '—', dlt(cur.p, prev.p, Math.round, ' g'))}
-      ${kv('Protein target hit', cur.protHit + ' / ' + cur.logged + ' days')}
+      ${kv('Days logged', cur.logged + ' / 7')}
       ${kv('Avg weight', cur.wAvg ? kg(r1(cur.wAvg)) + ' kg' : '—', dlt(cur.wAvg, prev.wAvg, x => kg(r1(x)), ' kg'))}</div>
     <div><div class="eyebrow" style="margin-bottom:4px">Training</div>
       ${kv('Workouts', cur.wos, dlt(cur.wos, prev.wos, x => x))}
@@ -1007,9 +1029,9 @@ function vProgress() {
     ${Object.entries(MUSCLES).map(([k, l]) => { const v = ms[k]; return `<div class="mrow"><span class="${v < 8 ? '' : 'muted'}" style="${v < 8 ? 'font-weight:500' : ''}">${l}</span><div class="mtrack"><div class="band" style="left:${10 / 24 * 100}%;width:${10 / 24 * 100}%"></div><i class="${v >= 10 ? 'ok' : ''}" style="width:${Math.min(100, v / 24 * 100)}%"></i></div><span class="mono" style="text-align:right;font-size:12px">${r1(v)}</span></div>`; }).join('')}
     <div class="faint mt8" style="font-size:12px">Bold = under 8 sets this week</div></section>
   <section class="card"><div class="eyebrow">Avg calories / day · 8 weeks</div>
-    <div class="mt8">${barChart({ vals: ws.map(w => w.kcal), labels: wl, color: 'var(--accent)', max: 3000, ticks: [0, 1000, 2000, 3000], tf: v => v ? v / 1000 + 'k' : '0', target: t.kcal, label: 'Average calories per week' })}</div></section>
+    <div class="mt8">${barChart({ vals: ws.map(w => w.kcal), labels: wl, color: 'var(--accent)', max: 3000, ticks: [0, 1000, 2000, 3000], tf: v => v ? v / 1000 + 'k' : '0', label: 'Average calories per week' })}</div></section>
   <section class="card"><div class="eyebrow">Avg protein / day · g</div>
-    <div class="mt8">${barChart({ vals: ws.map(w => w.p), labels: wl, color: 'var(--protein)', max: 200, ticks: [0, 50, 100, 150, 200], target: t.p, label: 'Average protein per week' })}</div></section>
+    <div class="mt8">${barChart({ vals: ws.map(w => w.p), labels: wl, color: 'var(--protein)', max: 200, ticks: [0, 50, 100, 150, 200], label: 'Average protein per week' })}</div></section>
   <section class="card"><div class="eyebrow">Workouts per week</div>
     <div class="mt8">${barChart({ vals: ws.map(w => w.wos), labels: wl, color: 'var(--ink2)', max: 6, ticks: [0, 2, 4, 6], showVals: true, label: 'Workouts per week' })}</div></section>
   <section class="card"><div class="row sb"><div class="eyebrow">Sleep & energy · 28 days</div></div>
@@ -1035,53 +1057,59 @@ function renderSheet(anim) {
 const sheetHead = (eyebrow, title) => `<div class="sh-head"><div><div class="eyebrow">${eyebrow}</div><h2>${esc(title)}</h2></div><button class="icon-btn" data-a="closeSheet" aria-label="Close">×</button></div>`;
 function qtyPreview(s) {
   const n = calc(s.kind, s.ref, s.qty, s.unit, S.db);
-  return { n, html: `<div class="k"><span class="mtag">kcal</span><b>${fmt(n.kcal)}</b></div><div><span class="mtag"><i class="dot" style="background:var(--protein)"></i>Prot</span><b>${r1(n.p)}</b></div><div><span class="mtag"><i class="dot" style="background:var(--carbs)"></i>Carb</span><b>${r1(n.c)}</b></div><div><span class="mtag"><i class="dot" style="background:var(--fat)"></i>Fat</span><b>${r1(n.f)}</b></div>` };
+  const cell = (cls, lbl, v, u) => `<div${cls ? ' class="' + cls + '"' : ''}>${lbl}<b>${v}</b><small>${u}</small></div>`;
+  return { n, html: cell('k', '<span class="mtag">Calories</span>', fmt(n.kcal), 'kcal') + cell('', '<span class="mtag"><i class="dot" style="background:var(--protein)"></i>Protein</span>', r1(n.p), 'g') + cell('', '<span class="mtag"><i class="dot" style="background:var(--carbs)"></i>Carbs</span>', r1(n.c), 'g') + cell('', '<span class="mtag"><i class="dot" style="background:var(--fat)"></i>Fat</span>', r1(n.f), 'g') };
 }
 const SHEETS = {
   qty(s) {
     const item = (s.kind === 'ing' ? S.db.ingredients : S.db.recipes).find(x => x.id === s.ref);
-    const units = s.kind === 'rec' ? [['srv','Servings'],['g','Grams']] : item.unit ? [['pc', cap(item.unit.name) + 's'],['g','Grams']] : [['g','Grams']];
+    const units = s.kind === 'rec' ? (item.servings > 1 ? [['g','Grams'],['srv','Servings']] : [['g','Grams']]) : item.unit ? [['g','Grams'],['pc', cap(item.unit.name) + 's']] : [['g','Grams']];
     const quick = s.unit === 'g' ? [50, 100, 150, 200, 250] : s.unit === 'srv' ? [0.5, 1, 1.5, 2] : [1, 2, 3, 4];
-    const ul = s.unit === 'g' ? 'grams' : s.unit === 'srv' ? 'servings' : item.unit.name + 's · ' + item.unit.g + ' g each';
+    const ul = s.unit === 'g' ? 'grams you ate' : s.unit === 'srv' ? 'servings · about ' + fmt(unitGrams(s, 'srv')) + ' g each' : item.unit.name + 's · ' + item.unit.g + ' g each';
     const p = qtyPreview(s);
-    const meta = s.kind === 'rec' ? `Recipe · ${item.servings} servings` : `Ingredient · ${fmt(item.kcal)} kcal / 100 g`;
+    const meta = s.kind === 'rec' ? 'Your recipe · nutrition scaled to the weight you ate' : `Per 100 g: ${fmt(item.kcal)} kcal · ${r1(item.p)} g protein`;
     return `${sheetHead(meta, item.name)}
     ${units.length > 1 ? `<div class="seg">${units.map(([k, l]) => `<button class="${s.unit === k ? 'on' : ''}" data-a="qtyUnit" data-u="${k}">${l}</button>`).join('')}</div>` : ''}
-    <div class="qty"><button class="icon-btn" data-a="qtyStep" data-d="-1" aria-label="Less">−</button><input inputmode="decimal" data-in="qty" data-k="qty" value="${esc(s.qty)}" aria-label="Quantity"><button class="icon-btn" data-a="qtyStep" data-d="1" aria-label="More">+</button></div>
+    <div class="qty"><button class="icon-btn" data-a="qtyStep" data-d="-1" aria-label="Less">−</button><input inputmode="decimal" data-in="qty" data-k="qty" value="${esc(s.qty)}" placeholder="0" aria-label="Quantity"><button class="icon-btn" data-a="qtyStep" data-d="1" aria-label="More">+</button></div>
     <div class="unitlbl">${esc(ul)}</div>
     <div class="chips wrap mt12" style="justify-content:center">${quick.map(v => `<button class="chip sub ${+s.qty === v ? 'on' : ''}" data-a="qtyQuick" data-v="${v}">${v}${s.unit === 'g' ? ' g' : ''}</button>`).join('')}</div>
     <div class="preview" id="qprev">${p.html}</div>
-    <div class="eyebrow">Meal</div><div class="chips wrap mt8">${MEALS.map(([k, n]) => `<button class="chip sub ${s.meal === k ? 'on' : ''}" data-a="qtyMeal" data-m="${k}">${n}</button>`).join('')}</div>
-    <div class="grid2 mt16"><label class="f"><span class="eyebrow">Time</span><input class="input" type="time" data-in="qtyTime" value="${s.time}"></label><label class="f"><span class="eyebrow">Date</span><input class="input" type="date" data-in="qtyDate" value="${s.date}" max="${TODAY}"></label></div>
-    <button class="btn primary block lg mt16" id="qsave" data-a="qtySave">${s.mode === 'edit' ? 'Save changes' : 'Add to ' + mealName(s.meal)} · ${fmt(p.n.kcal)} kcal</button>
+    <button class="btn ghost block" data-a="qtyNut">${s.nut ? 'Hide' : 'Show'} all nutrients</button><div id="qnut">${s.nut ? nutRows(p.n) : ''}</div>
+    <label class="f mt16"><span class="eyebrow">Day</span><input class="input" type="date" data-in="qtyDate" value="${s.date}" max="${TODAY}"></label>
+    <button class="btn primary block lg mt16" id="qsave" data-a="qtySave">${s.mode === 'edit' ? 'Save changes' : 'Add food'} · ${fmt(p.n.kcal)} kcal</button>
     ${s.mode === 'edit' ? `<button class="btn ghost block mt8" data-a="qtyDelete" style="color:var(--danger)">Delete entry</button>` : ''}`;
   },
   recipe(s) {
     const t = recipeTotals(s, S.db), sv = Math.max(1, parseFloat(s.servings) || 1), q = (s.addQ || '').trim().toLowerCase();
     const matches = q ? S.db.ingredients.filter(i => i.name.toLowerCase().includes(q)).slice(0, 6) : [];
     return `${sheetHead(s.id ? 'Edit recipe' : 'New recipe', s.name || 'Untitled recipe')}
-    <div class="grid2" style="grid-template-columns:minmax(0,1fr) 110px"><label class="f"><span class="eyebrow">Name</span><input class="input ${s._err && !s.name ? 'err' : ''}" data-in="rName" data-k="rName" value="${esc(s.name)}" placeholder="e.g. Rajma"></label>
-    <label class="f"><span class="eyebrow">Servings</span><input class="input num" inputmode="numeric" data-in="rServ" data-k="rServ" value="${esc(s.servings)}" style="text-align:center"></label></div>
-    <div class="eyebrow mt16">Ingredients · raw grams</div>
+    <label class="f"><span class="eyebrow">Name</span><input class="input ${s._err && !s.name ? 'err' : ''}" data-in="rName" data-k="rName" value="${esc(s.name)}" placeholder="e.g. Aloo sabji"></label>
+    <div class="eyebrow mt16">Ingredients · grams that went into the pot</div>
     <div class="mt8">${s.items.map((it, i) => { const ing = S.db.ingredients.find(x => x.id === it.ing); const k = ing ? ing.kcal * (parseFloat(it.g) || 0) / 100 : 0;
-      return `<div class="ingrow"><span class="e-name" style="font-weight:400">${esc(ing ? ing.name : it.ing)}</span><input class="cell" inputmode="decimal" data-in="rG" data-i="${i}" data-k="rG${i}" value="${esc(it.g)}" aria-label="grams"><span class="mono faint" style="font-size:12px;text-align:right" data-rk="${i}">${fmt(k)}</span><button class="icon-btn flat" style="width:36px" data-a="rRemove" data-i="${i}" aria-label="Remove">×</button></div>`; }).join('') || '<div class="empty-line">No ingredients yet.</div>'}</div>
+      return `<div class="ingrow"><span class="e-name" style="font-weight:400">${esc(ing ? ing.name : it.ing)}</span><input class="cell" inputmode="decimal" data-in="rG" data-i="${i}" data-k="rG${i}" value="${esc(it.g)}" aria-label="grams"><span class="mono faint" style="font-size:12px;text-align:right;white-space:nowrap" data-rk="${i}">${fmt(k)} kcal</span><button class="icon-btn flat" style="width:36px" data-a="rRemove" data-i="${i}" aria-label="Remove">×</button></div>`; }).join('') || '<div class="empty-line">No ingredients yet.</div>'}</div>
     <input class="input mt8" type="search" data-in="rQ" data-k="rQ" value="${esc(s.addQ || '')}" placeholder="+ Add ingredient — search">
-    ${matches.map(i => `<button class="list-row" data-a="rAddIng" data-id="${i.id}"><span class="e-main">${esc(i.name)}</span><span class="mono faint" style="font-size:12px">${fmt(i.kcal)}/100g</span></button>`).join('')}
-    ${q && !matches.length ? `<div class="empty-line">No ingredient “${esc(s.addQ)}”. Add it in the Ingredients tab.</div>` : ''}
+    ${matches.map(i => `<button class="list-row" data-a="rAddIng" data-id="${i.id}"><span class="e-main">${esc(i.name)}</span><span class="mono faint" style="font-size:12px">${fmt(i.kcal)} kcal / 100 g</span></button>`).join('')}
+    ${q && !matches.length ? `<div class="empty-line">No food “${esc(s.addQ)}”. Add it in the Foods tab first.</div>` : ''}
+    <div class="grid2 mt16"><label class="f"><span class="eyebrow">Weight of the finished dish (g)</span><input class="input num" inputmode="decimal" data-in="rCooked" data-k="rCooked" value="${esc(s.cooked)}" placeholder="${fmt(t.g) || 'e.g. 800'}"></label>
+    <label class="f"><span class="eyebrow">Servings (optional)</span><input class="input num" inputmode="numeric" data-in="rServ" data-k="rServ" value="${esc(s.servings)}"></label></div>
+    <div class="faint" style="font-size:12px;margin-top:6px">Weigh the cooked dish. Water cooks off or soaks in, so this is usually different from the raw total. Leave blank to use the raw total.</div>
     <div id="rtot">${recipeTotalsTable(t, sv)}</div>
     ${s._err ? `<div class="err-msg mt8">${esc(s._err)}</div>` : ''}
     <button class="btn primary block lg mt16" data-a="rSave">Save recipe</button>`;
   },
   ing(s) {
     const f = (k, l, ph) => `<label class="f"><span class="eyebrow">${l}</span><input class="input num ${s._err && k === 'kcal' && s.kcal === '' ? 'err' : ''}" inputmode="decimal" data-in="ingF" data-f="${k}" data-k="ing-${k}" value="${esc(s[k])}" placeholder="${ph || '0'}"></label>`;
-    return `${sheetHead(s.id ? 'Edit ingredient' : 'New ingredient', s.name || 'Ingredient')}
+    const nf = (k, l, u) => `<label class="f"><span class="eyebrow">${l} (${u})</span><input class="input num" inputmode="decimal" data-in="ingN" data-f="${k}" data-k="ing-n-${k}" value="${esc(s.n[k] == null ? '' : s.n[k])}" placeholder="—"></label>`;
+    return `${sheetHead(s.id ? 'Edit food' : 'New food', s.name || 'Food')}
     <label class="f"><span class="eyebrow">Name</span><input class="input ${s._err && !s.name ? 'err' : ''}" data-in="ingF" data-f="name" data-k="ing-name" value="${esc(s.name)}" placeholder="e.g. Rajma, dry"></label>
-    <div class="eyebrow mt16">Nutrition per 100 g</div>
-    <div class="grid2 mt8">${f('kcal', 'Calories')}${f('p', 'Protein g')}${f('c', 'Carbs g')}${f('f', 'Fat g')}${f('fib', 'Fibre g (optional)', '—')}</div>
+    <div class="eyebrow mt16">Nutrition in 100 g of this food</div>
+    <div class="grid2 mt8">${f('kcal', 'Calories (kcal)')}${f('p', 'Protein (g)')}${f('c', 'Carbs incl. fibre (g)')}${f('f', 'Fat (g)')}</div>
     <div class="eyebrow mt16">Countable portion (optional)</div>
-    <div class="grid2 mt8"><label class="f"><span class="eyebrow">Unit name</span><input class="input" data-in="ingF" data-f="unitName" data-k="ing-un" value="${esc(s.unitName)}" placeholder="e.g. roti, scoop"></label>${f('unitG', 'Grams per unit', '—')}</div>
+    <div class="grid2 mt8"><label class="f"><span class="eyebrow">Unit name</span><input class="input" data-in="ingF" data-f="unitName" data-k="ing-un" value="${esc(s.unitName)}" placeholder="e.g. roti, egg"></label>${f('unitG', 'Grams per unit', '—')}</div>
+    <button class="btn ghost block mt16" data-a="ingMore">${s.more ? 'Hide' : 'Add'} fibre, fats, minerals and vitamins (optional)</button>
+    ${s.more ? NUTS.map(([gl, items]) => `<div class="eyebrow mt16">${gl} · per 100 g</div><div class="grid2 mt8">${items.map(([k, l, u]) => nf(k, l, u)).join('')}</div>`).join('') : ''}
     ${s._err ? `<div class="err-msg mt12">${esc(s._err)}</div>` : ''}
-    <button class="btn primary block lg mt16" data-a="ingSave">Save ingredient</button>`;
+    <button class="btn primary block lg mt16" data-a="ingSave">Save food</button>`;
   },
   exPick(s) {
     const q = (s.q || '').trim(), res = sortResults(filterExercises(S.db.exercises, { q, group: s.group || null, sub: null, eq: [], mv: [], type: [] }), 'az'), plain = !q && !s.group;
@@ -1116,13 +1144,13 @@ const SHEETS = {
     const th = document.documentElement.dataset.theme;
     return `${sheetHead('Settings', 'Display')}
     <div class="eyebrow">Theme</div><div class="seg mt8">${['auto','light','dark'].map(t => `<button class="${th === t ? 'on' : ''}" data-a="setTheme" data-t="${t}">${cap(t)}</button>`).join('')}</div>
-    <div class="faint mt12" style="font-size:12px">Targets, routines and the training rotation live in the Google Sheet (Settings and Routines tabs).</div>`;
+    <div class="faint mt12" style="font-size:12px">Water goal, routines and the training rotation live in the Google Sheet (Settings and Routines tabs).</div>`;
   }
 };
 function recipeTotalsTable(t, sv) {
-  return `<table class="rtable mt16"><tr><th></th><th style="text-align:right">kcal</th><th style="text-align:right;color:var(--protein)">P</th><th style="text-align:right;color:var(--carbs)">C</th><th style="text-align:right;color:var(--fat)">F</th></tr>
-  <tr><td>Per serving</td><td><b>${fmt(t.kcal / sv)}</b></td><td>${r1(t.p / sv)}</td><td>${r1(t.c / sv)}</td><td>${r1(t.f / sv)}</td></tr>
-  <tr><td>Whole batch · ${fmt(t.g)} g</td><td>${fmt(t.kcal)}</td><td>${Math.round(t.p)}</td><td>${Math.round(t.c)}</td><td>${Math.round(t.f)}</td></tr></table>`;
+  const k = 100 / (t.w || 1), row = (l, m, bold) => `<tr><td>${l}</td><td>${bold ? '<b>' + fmt(t.kcal * m) + '</b>' : fmt(t.kcal * m)}</td><td>${r1(t.p * m)}</td><td>${r1(t.c * m)}</td><td>${r1(t.f * m)}</td></tr>`;
+  return `<table class="rtable mt16"><tr><th></th><th style="text-align:right">kcal</th><th style="text-align:right;color:var(--protein)">Protein g</th><th style="text-align:right;color:var(--carbs)">Carbs g</th><th style="text-align:right;color:var(--fat)">Fat g</th></tr>
+  ${row('Per 100 g', k, true)}${sv > 1 ? row('Per serving', 1 / sv) : ''}${row('Whole dish · ' + fmt(t.w) + ' g', 1)}</table>`;
 }
 
 /* ===================== actions ===================== */
@@ -1135,7 +1163,7 @@ function logFood(entry, quick) {
     failures.delete(key); e.id = res.id;
     if (e._undo) { api.deleteFoodEntry(res.id).catch(() => {}); }
   }, e);
-  if (quick) toast(`Logged ${e.name} · ${qtyLabel(e)} to ${mealName(e.meal)}`, 'Undo', () => {
+  if (quick) toast(`Logged ${e.name} · ${qtyLabel(e)}`, 'Undo', () => {
     S.db.foodLog = S.db.foodLog.filter(x => x !== e); failures.delete(key);
     if (e._s === 'saving') e._undo = true; else if (!String(e.id).startsWith('tmp')) api.deleteFoodEntry(e.id).catch(() => {});
     render();
@@ -1198,36 +1226,35 @@ const A = {
   toastClose: () => { $('#toast').innerHTML = ''; },
   // today
   water: el => { const n = Math.max(0, (S.db.water[TODAY] || 0) + +el.dataset.d); S.db.water[TODAY] = n; const box = { _s: null }; persist('water:' + TODAY, 'water', () => api.setWater(TODAY, n), null, box); },
-  wStep: el => { const cur = parseFloat(S.weightDraft != null ? S.weightDraft : ($('[data-in=weight]') || {}).value) || 75; S.weightDraft = r1(cur + +el.dataset.d); render(); },
+  wStep: el => { const cur = parseFloat(S.weightDraft != null ? S.weightDraft : ($('[data-in=weight]') || {}).value) || 50; S.weightDraft = r1(cur + +el.dataset.d); render(); },
   weightSave: () => {
     const v = parseFloat(S.weightDraft != null ? S.weightDraft : $('[data-in=weight]').value);
     if (!(v > 20 && v < 300)) { toast('Enter a weight between 20 and 300 kg'); return; }
     S.db.weights = S.db.weights.filter(w => w.date !== TODAY); const w = { date: TODAY, kg: r1(v) }; S.db.weights.push(w); S.weightDraft = null;
     persist('wt:' + TODAY, 'weight', () => api.addWeight(strip(w)), null, w);
   },
-  mealAdd: el => { S.food.meal = el.dataset.m; S.food.seg = 'log'; S.food.q = ''; S.food.addDate = TODAY; goTab('food'); },
-  fab: () => { S.food.meal = mealForTime(nowHM()); S.food.seg = 'log'; S.food.q = ''; if (S.tab !== 'food') S.food.addDate = TODAY; goTab('food'); setTimeout(() => { const i = $('[data-in=foodQ]'); i && i.focus(); }, 50); },
+  fab: () => { S.food.seg = 'log'; S.food.q = ''; if (S.tab !== 'food') S.food.addDate = TODAY; goTab('food'); setTimeout(() => { const i = $('[data-in=foodQ]'); i && i.focus(); }, 50); },
   // food
   foodSeg: el => { S.food.seg = el.dataset.s; render(); },
-  setMeal: el => { S.food.meal = el.dataset.m; render(); },
+  toggleNut: () => { S.food.nutOpen = !S.food.nutOpen; render(); },
   addToday: () => { S.food.addDate = TODAY; render(); },
-  quick: el => { const d = el.dataset; logFood({ date: S.food.addDate, time: S.food.addDate === TODAY ? nowHM() : '12:00', meal: S.food.meal, kind: d.kind, ref: d.ref, qty: +d.qty, unit: d.unit }, true); },
+  quick: el => { const d = el.dataset; logFood({ date: S.food.addDate, time: S.food.addDate === TODAY ? nowHM() : '12:00', kind: d.kind, ref: d.ref, qty: +d.qty, unit: d.unit }, true); },
   pickFood: el => {
     const kind = el.dataset.kind, ref = el.dataset.ref, item = (kind === 'ing' ? S.db.ingredients : S.db.recipes).find(x => x.id === ref);
-    const unit = kind === 'rec' ? 'srv' : item.unit ? 'pc' : 'g';
-    openSheet({ type: 'qty', mode: 'add', kind, ref, unit, qty: unit === 'g' ? 100 : 1, meal: S.food.meal, time: nowHM(), date: S.food.addDate });
+    void item;
+    openSheet({ type: 'qty', mode: 'add', kind, ref, unit: 'g', qty: '', time: nowHM(), date: S.food.addDate });
+    setTimeout(() => { const i = $('[data-in=qty]'); i && i.focus(); }, 60);
   },
-  editEntry: el => { const e = S.db.foodLog.find(x => x.id === el.dataset.id); if (!e) return; if (e._s === 'saving') { toast('Still saving — try again in a moment'); return; } openSheet({ type: 'qty', mode: 'edit', id: e.id, kind: e.kind, ref: e.ref, unit: e.unit, qty: e.qty, meal: e.meal, time: e.time, date: e.date }); },
-  qtyUnit: el => { const s = S.sheet, item = s.kind === 'ing' ? S.db.ingredients.find(x => x.id === s.ref) : null, r = s.kind === 'rec' ? S.db.recipes.find(x => x.id === s.ref) : null;
-    const g = s.unit === 'g' ? +s.qty : s.unit === 'pc' ? +s.qty * item.unit.g : +s.qty * recipeTotals(r, S.db).g / r.servings; const u = el.dataset.u;
-    s.qty = u === 'g' ? Math.round(g) : u === 'pc' ? Math.max(1, Math.round(g / item.unit.g * 2) / 2) : Math.max(.5, Math.round(g / (recipeTotals(r, S.db).g / r.servings) * 2) / 2); s.unit = u; renderSheet(); },
+  editEntry: el => { const e = S.db.foodLog.find(x => x.id === el.dataset.id); if (!e) return; if (e._s === 'saving') { toast('Still saving — try again in a moment'); return; } openSheet({ type: 'qty', mode: 'edit', id: e.id, kind: e.kind, ref: e.ref, unit: e.unit, qty: e.qty, time: e.time, date: e.date }); },
+  qtyUnit: el => { const s = S.sheet, u = el.dataset.u, g = (parseFloat(s.qty) || 0) * unitGrams(s, s.unit), per = unitGrams(s, u);
+    s.qty = !g ? '' : u === 'g' ? Math.round(g) : Math.max(.5, Math.round(g / per * 2) / 2); s.unit = u; renderSheet(); },
   qtyStep: el => { const s = S.sheet, step = s.unit === 'g' ? 10 : s.unit === 'srv' ? 0.5 : 1; s.qty = Math.max(0, r1((parseFloat(s.qty) || 0) + step * +el.dataset.d)); renderSheet(); },
   qtyQuick: el => { S.sheet.qty = +el.dataset.v; renderSheet(); },
-  qtyMeal: el => { S.sheet.meal = el.dataset.m; renderSheet(); },
+  qtyNut: () => { S.sheet.nut = !S.sheet.nut; renderSheet(); },
   qtySave: () => {
     const s = S.sheet; if (!(parseFloat(s.qty) > 0)) { toast('Enter a quantity above 0'); return; }
-    if (s.mode === 'add') { logFood({ date: s.date, time: s.time, meal: s.meal, kind: s.kind, ref: s.ref, qty: +s.qty, unit: s.unit }); closeSheet(); toast(`Added to ${mealName(s.meal)}`); return; }
-    const e = S.db.foodLog.find(x => x.id === s.id), patch = { qty: +s.qty, unit: s.unit, meal: s.meal, time: s.time, date: s.date, ...calc(s.kind, s.ref, s.qty, s.unit, S.db) };
+    if (s.mode === 'add') { logFood({ date: s.date, time: s.time, kind: s.kind, ref: s.ref, qty: +s.qty, unit: s.unit }); closeSheet(); toast('Food added'); return; }
+    const e = S.db.foodLog.find(x => x.id === s.id), patch = { qty: +s.qty, unit: s.unit, time: s.time, date: s.date, ...calc(s.kind, s.ref, s.qty, s.unit, S.db) };
     const before = { ...e }; Object.assign(e, patch); closeSheet();
     persist('food:' + e.id, e.name, () => api.updateFoodEntry(e.id, patch), null, e);
     void before;
@@ -1242,25 +1269,26 @@ const A = {
   },
   dayNav: el => { const d = addDays(S.food.date, +el.dataset.d); if (d > TODAY) return; S.food.date = d; ensureDay(d); render(); },
   dayAdd: () => { S.food.addDate = S.food.date; S.food.seg = 'log'; render(); },
-  newRecipe: () => openSheet({ type: 'recipe', name: '', servings: 4, items: [], addQ: '' }),
-  editRecipe: el => { const r = S.db.recipes.find(x => x.id === el.dataset.id); openSheet({ type: 'recipe', id: r.id, name: r.name, servings: r.servings, items: r.items.map(i => ({ ...i })), addQ: '' }); },
+  newRecipe: () => openSheet({ type: 'recipe', name: '', servings: 1, cooked: '', items: [], addQ: '' }),
+  editRecipe: el => { const r = S.db.recipes.find(x => x.id === el.dataset.id); openSheet({ type: 'recipe', id: r.id, name: r.name, servings: r.servings, cooked: r.cooked || '', items: r.items.map(i => ({ ...i })), addQ: '' }); },
   rAddIng: el => { S.sheet.items.push({ ing: el.dataset.id, g: 100 }); S.sheet.addQ = ''; renderSheet(); },
   rRemove: el => { S.sheet.items.splice(+el.dataset.i, 1); renderSheet(); },
   rSave: () => {
     const s = S.sheet; if (!s.name.trim()) { s._err = 'Give the recipe a name.'; renderSheet(); return; }
     if (!s.items.length) { s._err = 'Add at least one ingredient.'; renderSheet(); return; }
-    const data = { id: s.id || 'tmp' + Date.now(), name: s.name.trim(), servings: Math.max(1, parseInt(s.servings) || 1), items: s.items.map(i => ({ ing: i.ing, g: parseFloat(i.g) || 0 })) };
+    const data = { id: s.id || 'tmp' + Date.now(), name: s.name.trim(), servings: Math.max(1, parseInt(s.servings) || 1), cooked: parseFloat(s.cooked) > 0 ? parseFloat(s.cooked) : null, items: s.items.map(i => ({ ing: i.ing, g: parseFloat(i.g) || 0 })) };
     let r = S.db.recipes.find(x => x.id === data.id); if (r) Object.assign(r, data); else { r = data; S.db.recipes.push(r); }
     closeSheet(); persist('rec:' + r.id, r.name, () => api.saveRecipe(strip(r)), res => { const old = r.id; r.id = res.id; remapId('rec', old, res.id); }, r);
   },
-  newIng: el => openSheet({ type: 'ing', name: el.dataset.name || '', kcal: '', p: '', c: '', f: '', fib: '', unitName: '', unitG: '' }),
-  editIng: el => { const i = S.db.ingredients.find(x => x.id === el.dataset.id); openSheet({ type: 'ing', id: i.id, name: i.name, kcal: i.kcal, p: i.p, c: i.c, f: i.f, fib: i.fib ?? '', unitName: i.unit ? i.unit.name : '', unitG: i.unit ? i.unit.g : '' }); },
+  newIng: el => openSheet({ type: 'ing', name: el.dataset.name || '', kcal: '', p: '', c: '', f: '', n: {}, more: false, unitName: '', unitG: '' }),
+  editIng: el => { const i = S.db.ingredients.find(x => x.id === el.dataset.id); openSheet({ type: 'ing', id: i.id, name: i.name, kcal: i.kcal, p: i.p, c: i.c, f: i.f, n: { ...(i.n || {}) }, more: false, unitName: i.unit ? i.unit.name : '', unitG: i.unit ? i.unit.g : '' }); },
+  ingMore: () => { S.sheet.more = !S.sheet.more; renderSheet(); },
   ingSave: () => {
     const s = S.sheet, num = v => v === '' || v == null ? null : parseFloat(v);
     if (!s.name.trim() || num(s.kcal) == null || isNaN(num(s.kcal))) { s._err = 'Name and calories are required.'; renderSheet(); return; }
     const p = num(s.p) || 0, c = num(s.c) || 0, f = num(s.f) || 0;
-    if (p + c + f > 100) { s._err = 'Protein + carbs + fat can\'t exceed 100 g per 100 g.'; renderSheet(); return; }
-    const data = { id: s.id || 'tmp' + Date.now(), name: s.name.trim(), kcal: num(s.kcal), p, c, f, fib: num(s.fib), unit: s.unitName && num(s.unitG) ? { name: s.unitName.trim(), g: num(s.unitG) } : null };
+    if (p + c + f > 100.5) { s._err = 'Protein + carbs + fat can\'t exceed 100 g per 100 g (carbs already include fibre).'; renderSheet(); return; }
+    const data = { id: s.id || 'tmp' + Date.now(), name: s.name.trim(), kcal: num(s.kcal), p, c, f, n: Object.fromEntries(NKEYS.filter(k => s.n[k] !== '' && s.n[k] != null && !isNaN(parseFloat(s.n[k]))).map(k => [k, parseFloat(s.n[k])])), unit: s.unitName && num(s.unitG) ? { name: s.unitName.trim(), g: num(s.unitG) } : null };
     let i = S.db.ingredients.find(x => x.id === data.id); if (i) Object.assign(i, data); else { i = data; S.db.ingredients.push(i); }
     closeSheet(); S.food.q = ''; persist('ing:' + i.id, i.name, () => api.saveIngredient(strip(i)), res => { const old = i.id; i.id = res.id; remapId('ing', old, res.id); }, i);
   },
@@ -1356,12 +1384,14 @@ const INPUT = {
   ingQ: el => { S.food.ingQ = el.value; render(); },
   pickQ: el => { S.sheet.q = el.value; renderSheet(); },
   weight: el => { S.weightDraft = el.value; },
-  qty: el => { S.sheet.qty = el.value; const p = qtyPreview(S.sheet); $('#qprev').innerHTML = p.html; $('#qsave').textContent = (S.sheet.mode === 'edit' ? 'Save changes' : 'Add to ' + mealName(S.sheet.meal)) + ' · ' + fmt(p.n.kcal) + ' kcal'; },
+  qty: el => { S.sheet.qty = el.value; const p = qtyPreview(S.sheet); $('#qprev').innerHTML = p.html; const qn = $('#qnut'); if (qn) qn.innerHTML = S.sheet.nut ? nutRows(p.n) : ''; $('#qsave').textContent = (S.sheet.mode === 'edit' ? 'Save changes' : 'Add food') + ' · ' + fmt(p.n.kcal) + ' kcal'; },
   qtyTime: el => { S.sheet.time = el.value; },
   qtyDate: el => { if (el.value) S.sheet.date = el.value > TODAY ? TODAY : el.value; },
   rName: el => { S.sheet.name = el.value; },
   rServ: el => { S.sheet.servings = el.value; $('#rtot').innerHTML = recipeTotalsTable(recipeTotals(S.sheet, S.db), Math.max(1, parseFloat(el.value) || 1)); },
-  rG: el => { const i = +el.dataset.i, it = S.sheet.items[i]; it.g = el.value; const ing = S.db.ingredients.find(x => x.id === it.ing); const k = document.querySelector(`[data-rk="${i}"]`); if (k) k.textContent = fmt(ing.kcal * (parseFloat(el.value) || 0) / 100); $('#rtot').innerHTML = recipeTotalsTable(recipeTotals(S.sheet, S.db), Math.max(1, parseFloat(S.sheet.servings) || 1)); },
+  rCooked: el => { S.sheet.cooked = el.value; $('#rtot').innerHTML = recipeTotalsTable(recipeTotals(S.sheet, S.db), Math.max(1, parseFloat(S.sheet.servings) || 1)); },
+  ingN: el => { S.sheet.n[el.dataset.f] = el.value; },
+  rG: el => { const i = +el.dataset.i, it = S.sheet.items[i]; it.g = el.value; const ing = S.db.ingredients.find(x => x.id === it.ing); const k = document.querySelector(`[data-rk="${i}"]`); if (k) k.textContent = fmt(ing.kcal * (parseFloat(el.value) || 0) / 100) + ' kcal'; $('#rtot').innerHTML = recipeTotalsTable(recipeTotals(S.sheet, S.db), Math.max(1, parseFloat(S.sheet.servings) || 1)); },
   rQ: el => { S.sheet.addQ = el.value; renderSheet(); },
   ingF: el => { S.sheet[el.dataset.f] = el.value; },
   exfName: el => { S.sheet.name = el.value; },
