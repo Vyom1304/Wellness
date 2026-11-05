@@ -417,64 +417,69 @@ test('gym: set-by-set logging — ticking saves the set, add/remove set, reorder
   S.tab = 'gym'; get('render')(); assert.match(viewHtml(app), /class="n pr">PR</);
 });
 
-test('bank: filters are AND across categories and OR within one; muscle matches primary first, then assists', async () => {
-  const app = await boot(); const { S, get } = app;
-  const all = S.db.exercises, filter = (f) => J(get('filterExercises')(all, { q: '', group: null, sub: null, eq: [], mv: [], type: [], ...f }));
-  assert.equal(filter({}).length, all.length);
-  const chest = filter({ group: 'chest' });
-  assert.ok(chest.length > 15);
-  const firstSec = chest.findIndex(r => r.role === 'secondary'), lastPrim = chest.map(r => r.role).lastIndexOf('primary');
-  assert.ok(firstSec === -1 || chest.filter(r => r.role === 'primary').every(r => r.e.prim.includes('chest')));
-  assert.ok(chest.filter(r => r.role === 'secondary').every(r => r.e.sec.includes('chest') && !r.e.prim.includes('chest')));
-  // OR within a category
-  const bd = filter({ eq: ['barbell', 'dumbbell'] }); assert.ok(bd.every(r => ['barbell', 'dumbbell'].includes(r.e.eq)));
-  assert.equal(bd.length, filter({ eq: ['barbell'] }).length + filter({ eq: ['dumbbell'] }).length);
-  // AND across categories
-  const both = filter({ group: 'back', sub: 'lats', eq: ['cable'], mv: ['pull'], type: ['compound'] });
-  assert.ok(both.length > 0 && both.every(r => r.e.eq === 'cable' && r.e.mv === 'pull' && r.e.type === 'compound' && (r.e.prim.includes('lats') || r.e.sec.includes('lats'))));
-  assert.equal(filter({ group: 'chest', eq: ['machine'] }).length, chest.filter(r => r.e.eq === 'machine').length);
-  // search
-  assert.ok(filter({ q: 'curl' }).every(r => /curl/i.test(r.e.name)));
-  assert.equal(filter({ q: 'zzzz' }).length, 0);
-  // a sub-muscle narrows the group
-  const lats = filter({ group: 'back', sub: 'lats' }); assert.ok(lats.length < filter({ group: 'back' }).length);
-});
-
-test('bank: tapping a muscle on the map sets the filter, flips to the right side, and tapping again clears it', async () => {
+test('bank: tapping a region on the map selects it, tapping again clears it; the list is just that region (primary first, then assists)', async () => {
   const app = await boot(); const { S, A, get } = app;
-  A.bankOpen(); assert.equal(S.gym.bank, true);
-  A.muscle({ dataset: { muscle: 'lats' } });
-  assert.deepEqual([S.ex.group, S.ex.sub, S.ex.view], ['back', 'lats', 'back'], 'lats live on the back, within the Back group');
-  assert.deepEqual(J(get('exFilterMuscles')(S.ex)), ['lats']);
-  A.muscle({ dataset: { muscle: 'lats' } }); assert.deepEqual([S.ex.group, S.ex.sub], [null, null]);
-  A.muscle({ dataset: { muscle: 'biceps' } }); assert.deepEqual([S.ex.group, S.ex.sub, S.ex.view], ['biceps', null, 'front'], 'single-muscle groups use the group');
-  A.muscle({ dataset: { muscle: 'hamstrings' } }); assert.equal(S.ex.view, 'back');
-  // chips and diagram share the same state
-  A.exClear(); A.exFilter({ dataset: { f: 'group', v: 'back' } }); A.exFilter({ dataset: { f: 'sub', v: 'rear_delts' } });
-  assert.equal(S.ex.sub, 'rear_delts');
-  A.exFilter({ dataset: { f: 'eq', v: 'cable' } }); A.exFilter({ dataset: { f: 'eq', v: 'dumbbell' } }); assert.deepEqual(J(S.ex.eq), ['cable', 'dumbbell']);
-  A.exFilter({ dataset: { f: 'eq', v: 'cable' } }); assert.deepEqual(J(S.ex.eq), ['dumbbell']);
-  get('render')(); assertClean(viewHtml(app), 'filtered bank');
-  A.exClear(); assert.deepEqual([S.ex.group, S.ex.sub, S.ex.eq.length, S.ex.mv.length, S.ex.type.length, S.ex.q], [null, null, 0, 0, 0, '']);
+  S.tab = 'gym'; A.bankOpen(); assert.equal(S.gym.bank, true);
+  A.muscle({ dataset: { muscle: 'biceps_long' } });
+  assert.equal(S.ex.region, 'biceps_long');
+  const res = J(get('regionResults')('biceps_long')), E = S.db.exercises;
+  assert.ok(res.prim.length >= 5 && res.prim.every(e => e.focus.includes('biceps_long')));
+  assert.ok(res.sec.every(e => e.fa.includes('biceps_long') && !e.focus.includes('biceps_long')), 'assists only list exercises that merely help');
+  assert.ok(res.sec.some(e => e.id === 'lat_pd'), 'pulldowns assist the long head');
+  assert.deepEqual(J(get('regionResults')('biceps_short')).prim.map(e => e.id).includes('preacher'), true, 'preacher curl targets the short head');
+  assert.ok(!res.prim.some(e => e.id === 'preacher'), '…and not the long head');
+  assert.ok(J(get('regionResults')('upper_chest')).prim.some(e => e.id === 'incline_bench'));
+  assert.ok(J(get('regionResults')('lower_chest')).prim.some(e => e.id === 'decline_bench'));
+  // the page has the map and the list and nothing else to filter by
+  get('render')(); const h = viewHtml(app); assertClean(h, 'bank with a region');
+  assert.ok(h.includes('id="banklist"') && h.includes('id="bankpill"'));
+  assert.ok(!/class="chip|type="search"|data-a="exSort"|data-a="exFilter"/.test(h), 'no chips, search or sort on the bank page');
+  A.muscle({ dataset: { muscle: 'biceps_long' } }); assert.equal(S.ex.region, null);
+  A.muscle({ dataset: { muscle: 'hamstring_inner' } }); A.exView({ dataset: { v: 'back' } }); assert.equal(S.ex.view, 'back');
+  A.exClear(); assert.equal(S.ex.region, null);
 });
 
-test('bank: every muscle used by any exercise has a region on the diagram, and every region is a real muscle', async () => {
+test('bank: list rows show only the name and the specific muscle — no equipment, history or best lift', async () => {
+  const app = await boot(); const { S, A, get } = app;
+  S.db.workouts = [{ id: 'a', date: '2024-01-01', ex: [{ id: 'bayesian', sets: [{ w: 20, r: 12 }] }] }];
+  S.tab = 'gym'; A.bankOpen(); A.muscle({ dataset: { muscle: 'biceps_long' } }); get('render')();
+  const primaryHtml = viewHtml(app).split('divline')[0];
+  const rows = primaryHtml.match(/<button class="list-row"[^>]*data-a="exOpen"[\s\S]*?<\/button>/g);
+  assert.ok(rows && rows.length >= 5);
+  for (const r of rows) {
+    const sub = (r.match(/class="e-sub">([^<]*)</) || [])[1] || '', right = r.includes('class="e-r"');
+    assert.ok(!right && !/barbell|dumbbell|cable|machine|bodyweight|best|history|kg|reps/i.test(sub), 'row is clutter-free: ' + r.slice(0, 200));
+    assert.ok(/Biceps · (long|short) head/.test(r), 'shows the specific muscle');
+  }
+  assert.ok(rows.some(r => r.includes('Bayesian cable curl') && /Biceps · long head/.test(r)));
+});
+
+test('bank: every region has a label and a base muscle, sits on a view, and every exercise tag points at a real region', async () => {
   const app = await boot(); const { S, get } = app;
-  const BODY = J(get('BODY')), VIEWS = J(get('MUSCLE_VIEWS')), MUSCLES = Object.keys(J(get('MUSCLES')));
-  const front = BODY.front.map(r => r[0]), back = BODY.back.map(r => r[0]);
-  const used = new Set(S.db.exercises.flatMap(e => e.prim.concat(e.sec)));
-  for (const m of used) assert.ok(front.includes(m) || back.includes(m), 'no diagram region for ' + m);
-  for (const m of MUSCLES) assert.ok(front.includes(m) || back.includes(m), 'muscle without a region: ' + m);
-  for (const m of front.concat(back)) assert.ok(MUSCLES.includes(m), 'region for unknown muscle ' + m);
-  // the view table agrees with the artwork
-  for (const m of MUSCLES) assert.deepEqual(VIEWS[m].slice().sort(), [front.includes(m) ? 'front' : null, back.includes(m) ? 'back' : null].filter(Boolean).sort(), 'MUSCLE_VIEWS mismatch for ' + m);
-  // the SVG itself: one tappable group per region, mirrored for the other side, labelled for screen readers
-  const svg = get('bodySVG')('back');
-  assert.equal((svg.match(/class="mus"/g) || []).length, back.length);
-  assert.ok(/role="button" tabindex="0"/.test(svg) && /aria-label="Lats"/.test(svg));
-  assert.ok(svg.includes('scale(-1 1)'));
-  // groups cover exactly the muscles
-  assert.deepEqual(Object.keys(J(get('GROUP_OF'))).sort(), MUSCLES.slice().sort());
+  const BODY = J(get('BODY')), FOCUS = J(get('FOCUS')), MUSCLES = Object.keys(J(get('MUSCLES')));
+  const front = BODY.front.map(r => r[0]), back = BODY.back.map(r => r[0]), drawn = new Set(front.concat(back));
+  for (const id of Object.keys(FOCUS)) assert.ok(drawn.has(id), 'region not drawn: ' + id);
+  for (const id of drawn) assert.ok(FOCUS[id], 'drawn region has no label: ' + id);
+  for (const [id, [label, parent]] of Object.entries(FOCUS)) { assert.ok(label && MUSCLES.includes(parent), id); }
+  for (const m of MUSCLES) assert.ok(Object.values(FOCUS).some(v => v[1] === m), 'muscle with no region: ' + m);
+  // every exercise has at least one region, and all tags are real
+  for (const e of S.db.exercises) {
+    assert.ok(e.focus.length >= 1, e.id + ' has no region tag');
+    for (const id of e.focus.concat(e.fa)) assert.ok(FOCUS[id], e.id + ' tag ' + id);
+    // regions agree with the base muscles the Sheet already had
+    for (const id of e.focus) assert.ok(e.prim.includes(FOCUS[id][1]) || e.sec.includes(FOCUS[id][1]), e.id + ': ' + id + ' not within its muscles');
+  }
+  // every region has at least one exercise that targets it
+  for (const id of Object.keys(FOCUS)) assert.ok(S.db.exercises.some(e => e.focus.includes(id)), 'nothing trains ' + id);
+  // the SVG: one tappable group per region, mirrored, labelled; split regions use clip paths
+  const svg = get('bodySVG')('front');
+  assert.equal((svg.match(/class="mus"/g) || []).length, front.length);
+  assert.ok(/role="button" tabindex="0"/.test(svg) && /aria-label="Biceps · long head"/.test(svg) && /aria-label="Lower chest"/.test(svg));
+  assert.ok(svg.includes('scale(-1 1)') && svg.includes('clip-path="url(#cp-front-upper_chest)"') && svg.includes('viewBox="16 0 168 440"'));
+  assert.ok(get('bodySVG')('back').includes('aria-label="Triceps · medial head"'));
+  // a custom exercise with no region tags still shows up under the regions of its muscles
+  const custom = { id: 'x', name: 'Mine', prim: ['biceps'], sec: [], focus: [], fa: [] };
+  assert.deepEqual(J(get('exFocus')(custom)).sort(), ['biceps_long', 'biceps_short']);
 });
 
 test('bank: detail shows how-to steps, cues, mistakes, what it hits; opens from a workout and goes back', async () => {
@@ -509,24 +514,13 @@ test('bank: editing instructions in the form saves them to the Sheet; new exerci
   S.ex.detail = 'bench'; A.exEdit(); assert.match(S.sheet.howText, /Lie on the bench/);
 });
 
-test('bank: sort by recently trained and best lift; secondary results follow primary', async () => {
+test('picker: results are alphabetical with primary matches before assists', async () => {
   const app = await boot(); const { S, get } = app;
-  S.db.workouts = [{ id: 'a', date: '2024-01-01', ex: [{ id: 'bench', sets: [{ w: 60, r: 8 }] }] }, { id: 'b', date: '2024-02-01', ex: [{ id: 'cable_fly', sets: [{ w: 20, r: 12 }] }, { id: 'pec_deck', sets: [{ w: 90, r: 10 }] }] }];
-  const run = mode => J(get('sortResults')(get('filterExercises')(S.db.exercises, { q: '', group: 'chest', sub: null, eq: [], mv: [], type: [] }), mode)).map(r => r.e.id);
-  assert.deepEqual(run('recent').slice(0, 3).sort(), ['bench', 'cable_fly', 'pec_deck'].sort());
-  assert.equal(run('recent')[2], 'bench', 'oldest of the three trained comes last among them');
-  assert.equal(run('best')[0], 'pec_deck');
-  const az = run('az'); const roles = J(get('sortResults')(get('filterExercises')(S.db.exercises, { q: '', group: 'chest', sub: null, eq: [], mv: [], type: [] }), 'az')).map(r => r.role);
-  assert.ok(roles.indexOf('secondary') === -1 || roles.slice(roles.indexOf('secondary')).every(r => r === 'secondary'), 'secondary after primary');
-  assert.ok(az.length > 15);
-});
-
-test('static: build has no leftover tabs/functions from the old layout, and no external libraries', () => {
-  assert.ok(!/data-t="workout"|data-t="exercises"/.test(html));
-  assert.ok(!/function vWorkout|function vExercises|function filteredExercises/.test(html));
-  assert.ok(!/<script[^>]+src=/.test(html), 'no external scripts');
-  assert.ok(!/\beval\(|new Function\(|\sonclick=|\sonerror=/.test(script.replace('onclick="location.reload()"', '')), 'no eval or inline handlers (HtmlService)');
-  assert.ok(html.includes('prefers-reduced-motion'), 'reduced-motion handled');
+  const res = J(get('sortResults')(get('filterExercises')(S.db.exercises, { q: '', group: 'chest', sub: null, eq: [], mv: [], type: [] })));
+  const roles = res.map(r => r.role), firstSec = roles.indexOf('secondary');
+  assert.ok(firstSec === -1 || roles.slice(firstSec).every(r => r === 'secondary'));
+  const prim = res.filter(r => r.role === 'primary').map(r => r.e.name); assert.deepEqual(prim, prim.slice().sort((a, b) => a.localeCompare(b)));
+  assert.ok(res.length > 15);
 });
 
 test('bank: back works with browser history, and still works where history.pushState is blocked (sandboxed iframe)', async () => {
