@@ -276,23 +276,28 @@ test('guide: every seeded exercise has muscle note, 3-6 steps, 2+ cues, 2+ mista
 test('setup: fresh sheet is seeded with how-to text, and the new columns exist with wrap', () => {
   const env = makeEnv(); env.ctx.setup();
   const sh = env.ss.getSheetByName('Exercises');
-  assert.deepEqual(sh.header().slice(-4), ['muscle_note', 'how_to', 'cues', 'mistakes']);
+  assert.deepEqual(sh.header().slice(-6), ['muscle_note', 'how_to', 'cues', 'mistakes', 'focus', 'focus_assist']);
   const rows = sh.objects();
-  assert.ok(rows.every(r => r.how_to && r.cues && r.mistakes && r.muscle_note), 'every seeded row has all four');
+  assert.ok(rows.every(r => r.how_to && r.cues && r.mistakes && r.muscle_note && r.focus), 'every seeded row has how-to text and at least one target region');
+  assert.equal(rows.find(r => r.id === 'incline_bench').focus, 'upper_chest');
+  assert.equal(rows.find(r => r.id === 'preacher').focus, 'biceps_short');
+  assert.equal(rows.find(r => r.id === 'incline_curl').focus, 'biceps_long');
 });
 
 test('setup: an existing Exercises tab gets the new columns and blank cells are filled, edits are never replaced', () => {
   const env = makeEnv(); env.ctx.setup();
   const sh = env.ss.getSheetByName('Exercises');
-  // simulate a sheet from before this version: drop the four new columns, then add my own exercise and edit one
-  const keep = sh.header().length - 4;
+  // simulate a sheet from before this version: drop the six new columns, then add my own exercise and edit one
+  const keep = sh.header().length - 6;
   sh.data = sh.data.map(r => r.slice(0, keep));
   sh.data.push(['mine1', 'My cable thing', 'chest', '', 'cable', 'push', 'isolation', 10, 'Added from the app']);
   env.ctx.setup();
-  assert.deepEqual(sh.header().slice(-4), ['muscle_note', 'how_to', 'cues', 'mistakes']);
+  assert.deepEqual(sh.header().slice(-6), ['muscle_note', 'how_to', 'cues', 'mistakes', 'focus', 'focus_assist']);
   const byId = id => sh.objects().find(r => r.id === id);
   assert.ok(/Lie on the bench/.test(byId('bench').how_to), 'seeded exercise backfilled');
   assert.equal(byId('mine1').how_to, '', 'my own exercise is left alone');
+  assert.equal(byId('mine1').focus, '', 'my own exercise gets no region tags');
+  assert.equal(byId('bench').focus, 'mid_chest, lower_chest', 'seeded exercise gets its regions');
   // now edit one cell, blank another, and re-run: only the blank one is refilled
   const hi = sh.header().indexOf('how_to'), ci = sh.header().indexOf('cues');
   const bi = sh.data.findIndex(r => r[0] === 'bench');
@@ -304,9 +309,25 @@ test('setup: an existing Exercises tab gets the new columns and blank cells are 
   assert.equal(JSON.stringify(sh.data), snap, 'idempotent');
 });
 
+test('focus: tags cover all 144 seeded exercises with real region ids; round-trip through the Sheet', () => {
+  const env = makeEnv(); env.ctx.setup();
+  const ids = env.ctx.seedExercises_().map(e => e.id);
+  assert.equal(ids.length, 144);
+  for (const id of ids) { const f = env.ctx.focusFields_(id); assert.ok(f && f.focus, id); }
+  assert.equal(env.ctx.focusFields_('nope'), null);
+  const ex = ok(env.ctx.getBootstrap()).exercises.find(e => e.id === 'bench');
+  assert.deepEqual(ex.focus, ['mid_chest', 'lower_chest']); assert.ok(ex.fa.includes('upper_chest'));
+  const saved = ok(env.ctx.saveExercise(Object.assign({}, ex, { focus: ['upper_chest'], fa: ['front_delt'] })));
+  const back = ok(env.ctx.getBootstrap()).exercises.find(e => e.id === saved.id);
+  assert.deepEqual([back.focus, back.fa], [['upper_chest'], ['front_delt']]);
+  // an older client that does not send focus must not blank it
+  const old = Object.assign({}, back); delete old.focus; delete old.fa; ok(env.ctx.saveExercise(old));
+  assert.deepEqual(ok(env.ctx.getBootstrap()).exercises.find(e => e.id === saved.id).focus, ['upper_chest']);
+});
+
 test('cache: bumped version so cached rows without the new fields are not served', () => {
   const env = makeEnv();
-  assert.equal(env.get('CACHE_VERSION'), 'v2');
+  assert.equal(env.get('CACHE_VERSION'), 'v3');
 });
 
 /* ============================== API ============================== */

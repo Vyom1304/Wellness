@@ -36,3 +36,11 @@
 - `CACHE_VERSION` bumped to v2. No columns renamed or removed; Today, Food and Progress unchanged apart from nav.
 - `tools/make_index.py` retired: `build/Index.html` is now the source.
 - Known: chest sub-regions (upper/mid/lower) stay in notes; the stale browser-history entry after closing the bank is harmless.
+
+## v3: minimal exercise bank with finer muscle regions
+- The Exercises page is now just the body map. Chips, search and sorting are gone; tap a muscle and a list of exercises appears below it.
+- The map fills the screen width (scroll down for the legs) and has 29 tappable regions: chest upper/mid/lower, biceps long/short head, triceps long/lateral/medial head, upper/lower abs and obliques, outer/inner quads and rectus femoris, outer/inner hamstrings, glute max/med, calf gastrocnemius/soleus, upper traps / mid back / lower traps, three delt heads, forearm flexors/extensors, lats, lower back.
+- List rows show only the exercise name and the region it trains. Equipment, type, history and best lift are on the exercise's own page.
+- Exercises sheet gains `focus` and `focus_assist` columns (region ids). `setup()` fills them for the seeded exercises (blank cells only). Exercises you add yourself work too: they show under every region of their muscle until you pick specific regions in the edit form.
+- Two exercises added so every region has something that trains it: Incline prone Y raise and Scapular pull-up (lower traps). 144 seeded exercises now.
+- `CACHE_VERSION` bumped to v3.

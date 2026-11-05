@@ -140,13 +140,18 @@ function seedHistory(env) {
   await tap(page, '[data-a=exView][data-v=back]'); await sleep(900);
   await shot(page, '16-bank-back');
   await tap(page, '.mus[data-muscle=lats]'); await sleep(900);
-  assertions.mapSelectsLats = await page.evaluate(() => document.querySelector('.mus[data-muscle=lats]').classList.contains('sel') && S.ex.sub === 'lats');
+  assertions.mapSelectsLats = await page.evaluate(() => document.querySelector('.mus[data-muscle=lats]').classList.contains('sel') && S.ex.region === 'lats');
   await shot(page, '17-bank-lats-selected');
-  await page.evaluate(() => window.scrollTo(0, 520)); await sleep(150);
+  await tap(page, '[data-a=exList]'); await sleep(900);
+  assertions.pillHidesOnList = await page.evaluate(() => document.querySelector('#bankpill').classList.contains('hide'));
   await shot(page, '18-bank-lats-list');
-  await page.evaluate(() => window.scrollTo(0, 0));
-  await tap(page, '[data-a=exClear]'); await tap(page, '[data-a=exOpen][data-id=bench]'); await page.waitForSelector('text=Recent sessions'); await idle(page); await sleep(900);
-  assertions.detailHighlightsBench = await page.evaluate(() => document.querySelector('.mus[data-muscle=chest]').classList.contains('prim') && document.querySelector('.mus[data-muscle=triceps]') !== null);
+  await page.evaluate(() => window.scrollTo(0, 0)); await sleep(150);
+  await tap(page, '[data-a=exView][data-v=front]'); await sleep(900);
+  await tap(page, '.mus[data-muscle=mid_chest]'); await sleep(900);
+  await tap(page, '[data-a=exList]'); await sleep(700);
+  await shot(page, '18b-bank-chest-list');
+  await tap(page, '[data-a=exOpen][data-id=bench]'); await page.waitForSelector('text=Recent sessions'); await idle(page); await sleep(900);
+  assertions.detailHighlightsBench = await page.evaluate(() => document.querySelector('.mus[data-muscle=mid_chest]').classList.contains('prim') && document.querySelector('.mus[data-muscle=triceps_long]').classList.contains('sec'));
   await shot(page, '19-bank-exercise-detail');
   await page.evaluate(() => window.scrollTo(0, 560)); await sleep(150);
   await shot(page, '20-bank-how-to');
@@ -158,7 +163,7 @@ function seedHistory(env) {
   await tap(page, '.sh-head [data-a=closeSheet]');
   await tap(page, '[data-a=exBack]'); await tap(page, '[data-a=bankClose]'); await sleep(300);
   assertions.backReturnsToGym = await page.evaluate(() => S.tab === 'gym' && !S.gym.bank);
-  // tap targets: every button/chip on the Gym and bank pages is at least 44 px tall (diagram muscles have chips as the alternative)
+  // tap targets: every button on the Gym and bank pages is at least 44 px tall
   await tap(page, '[data-a=bankOpen]'); await sleep(200);
   assertions.smallTargets = await page.evaluate(() => [...document.querySelectorAll('#view button, #view input')].filter(n => { const r = n.getBoundingClientRect(); return r.width && r.height && r.height < 43.5; }).map(n => (n.className || n.tagName) + ':' + Math.round(n.getBoundingClientRect().height)));
   await tap(page, '[data-a=bankClose]');
@@ -177,7 +182,7 @@ function seedHistory(env) {
   const before = env.ss.getSheetByName('FoodLog').rows().length;
   await tap(page, '.entry:has-text("Paneer")'); await tap(page, '[data-a=qtyDelete]'); await idle(page);
   const after = env.ss.getSheetByName('FoodLog').rows().length;
-  await tap(page, '[data-a=tab][data-t=gym]'); await tap(page, '[data-a=bankOpen]'); await tap(page, '.mus[data-muscle=quads]'); await sleep(900);
+  await tap(page, '[data-a=tab][data-t=gym]'); await tap(page, '[data-a=bankOpen]'); await tap(page, '.mus[data-muscle=quad_outer]'); await sleep(900);
   await shot(page, '25-bank-dark');
   await page.context().close();
 
@@ -187,7 +192,7 @@ function seedHistory(env) {
   await shot(page, '26-desktop-today');
   await tap(page, '[data-a=tab][data-t=progress]'); await sleep(200);
   await shot(page, '27-desktop-progress');
-  await tap(page, '[data-a=tab][data-t=gym]'); await tap(page, '[data-a=bankOpen]'); await tap(page, '.mus[data-muscle=chest]'); await sleep(900);
+  await tap(page, '[data-a=tab][data-t=gym]'); await tap(page, '[data-a=bankOpen]'); await tap(page, '.mus[data-muscle=mid_chest]'); await sleep(900);
   await shot(page, '28-desktop-bank');
   await page.context().close();
   await browser.close();

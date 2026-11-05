@@ -13,7 +13,7 @@
 const TZ_DEFAULT = 'Asia/Kolkata';
 const FOOD_WINDOW_DAYS = 63;          // getBootstrap sends this many days of food log (covers the 8-week charts)
 const CACHE_TTL_S = 6 * 60 * 60;      // CacheService maximum
-const CACHE_VERSION = 'v2';
+const CACHE_VERSION = 'v3';
 const LOCK_WAIT_MS = 20000;
 const BACKUP_FOLDER_NAME = 'Backups';
 // Icon shown in the browser tab and on a phone home screen. Any public .png URL works.
@@ -65,7 +65,8 @@ const SCHEMA_ = {
     { n: 'equipment', w: 95, list: EQUIP_ }, { n: 'movement_type', w: 100, list: MOVES_ },
     { n: 'mechanic', w: 90, list: MECH_ }, { n: 'base_kg', w: 70, f: '0.##' }, { n: 'notes', w: 260, f: '@' },
     { n: 'muscle_note', w: 260, f: '@', wrap: true }, { n: 'how_to', w: 420, f: '@', wrap: true },
-    { n: 'cues', w: 300, f: '@', wrap: true }, { n: 'mistakes', w: 300, f: '@', wrap: true }],
+    { n: 'cues', w: 300, f: '@', wrap: true }, { n: 'mistakes', w: 300, f: '@', wrap: true },
+    { n: 'focus', w: 220, f: '@' }, { n: 'focus_assist', w: 220, f: '@' }],
   Routines: [
     { n: 'id', w: 90, f: '@' }, { n: 'name', w: 120, f: '@' }, { n: 'exercise_id', w: 120, f: '@' },
     { n: 'order', w: 55, f: '0' }, { n: 'target_sets', w: 80, f: '0' }, { n: 'target_reps', w: 85, f: '@' },
@@ -244,6 +245,7 @@ function exerciseFromRow_(r) {
     prim: splitList_(r.primary_muscles), sec: splitList_(r.secondary_muscles),
     eq: str_(r.equipment) || 'barbell', mv: str_(r.movement_type) || 'push', type: str_(r.mechanic) || 'compound',
     base: num_(r.base_kg, 0),
+    focus: splitList_(r.focus), fa: splitList_(r.focus_assist),
     note: str_(r.muscle_note), how: splitLines_(r.how_to), cues: splitLines_(r.cues), mist: splitLines_(r.mistakes)
   };
 }
@@ -252,6 +254,8 @@ function exerciseToFields_(e) {
     id: e.id, name: str_(e.name), primary_muscles: (e.prim || []).join(', '), secondary_muscles: (e.sec || []).join(', '),
     equipment: e.eq, movement_type: e.mv, mechanic: e.type, base_kg: num_(e.base, 0)
   };
+  if (e.focus !== undefined) f.focus = (e.focus || []).join(', ');
+  if (e.fa !== undefined) f.focus_assist = (e.fa || []).join(', ');
   // only touch the how-to columns when the client sent them (an older cached page must not blank them)
   if (e.note !== undefined) f.muscle_note = str_(e.note);
   if (e.how !== undefined) f.how_to = joinLines_(e.how);
@@ -820,17 +824,17 @@ function setup() {
 function backfillGuide_(log) {
   CTX_ = null;
   const t = table_('Exercises');
-  const cols = ['muscle_note', 'how_to', 'cues', 'mistakes'];
+  const cols = ['muscle_note', 'how_to', 'cues', 'mistakes', 'focus', 'focus_assist'];
   if (cols.some(function (c) { return t.header.indexOf(c) < 0; })) return;
   let filled = 0;
   t.rows.forEach(function (r) {
-    const g = guideFields_(str_(r.id));
-    if (!g) return;
+    const g = Object.assign({}, guideFields_(str_(r.id)) || {}, focusFields_(str_(r.id)) || {});
+    if (!Object.keys(g).length) return;
     const patch = {};
     cols.forEach(function (c) { if (isBlank_(r[c]) && g[c]) patch[c] = g[c]; });
     if (Object.keys(patch).length) { updateRow_(t, r, patch); filled++; }
   });
-  if (filled) log.push('Exercises: added how-to details for ' + filled + ' exercises');
+  if (filled) log.push('Exercises: added how-to and region details for ' + filled + ' exercises');
   CTX_ = null;
 }
 
@@ -1082,6 +1086,8 @@ const SEED_EXERCISES_ = [
   ['bb_shrug', 'Barbell shrug', 'upper_back', 'forearms', 'barbell', 'pull', 'isolation', 80, 'Upper traps'],
   ['db_shrug', 'Dumbbell shrug', 'upper_back', 'forearms', 'dumbbell', 'pull', 'isolation', 30, 'Upper traps'],
   ['rack_pull', 'Rack pull', 'upper_back,lower_back', 'glutes,forearms', 'barbell', 'pull', 'compound', 140, 'Traps, spinal erectors'],
+  ['y_raise', 'Incline prone Y raise', 'upper_back', 'rear_delts', 'dumbbell', 'pull', 'isolation', 4, 'Lower traps'],
+  ['scap_pullup', 'Scapular pull-up', 'upper_back', 'lats', 'bodyweight', 'pull', 'isolation', 0, 'Lower traps, scapular control'],
   // back: lower back
   ['deadlift', 'Deadlift', 'lower_back,glutes,hamstrings', 'quads,upper_back,forearms', 'barbell', 'pull', 'compound', 125, 'Spinal erectors'],
   ['back_ext', 'Back extension', 'lower_back', 'glutes,hamstrings', 'bodyweight', 'pull', 'isolation', 0, 'Spinal erectors'],
@@ -1201,7 +1207,7 @@ const SEED_EXERCISES_ = [
 function seedExercises_() {
   return SEED_EXERCISES_.map(function (a) {
     return Object.assign({ id: a[0], name: a[1], primary_muscles: a[2].split(',').join(', '), secondary_muscles: a[3] ? a[3].split(',').join(', ') : '',
-      equipment: a[4], movement_type: a[5], mechanic: a[6], base_kg: a[7], notes: a[8] }, guideFields_(a[0]) || {});
+      equipment: a[4], movement_type: a[5], mechanic: a[6], base_kg: a[7], notes: a[8] }, guideFields_(a[0]) || {}, focusFields_(a[0]) || {});
   });
 }
 
