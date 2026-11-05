@@ -2,12 +2,13 @@
 
 Logbook is a personal food, training and body-weight tracker. Your data lives in a Google Sheet you own. A small Google Apps Script program serves the app and reads and writes the Sheet. Only you can open it.
 
-This folder holds 4 files:
+This folder holds 5 files:
 
 | File | What it is |
 |---|---|
 | `Code.gs` | The backend: reads and writes the Sheet, sets it up, makes backups |
 | `ExerciseGuide.gs` | How-to text for the built-in exercises (a second script file) |
+| `FoodData.gs` | Vitamin and mineral data for the built-in foods (a third script file) |
 | `Index.html` | The app you see on your phone |
 | `appsscript.json` | Settings: India timezone, "only me" access |
 | `README.md` | This guide |
@@ -24,15 +25,16 @@ Pick **one** path: **A** (copy and paste in the browser, about 10 minutes, nothi
 3. In the menu, click **Extensions → Apps Script**. A new tab opens with the code editor.
 4. Click "Untitled project" at the top and rename it **Logbook**.
 
-### 2. Paste the four files
+### 2. Paste the five files
 1. **Code.gs**: the editor already shows a file called `Code.gs` with a few lines in it. Select everything in it (Ctrl+A, or Cmd+A on Mac), delete it, then paste the full contents of this folder's `Code.gs`.
 2. **ExerciseGuide.gs**: click **+** next to "Files", choose **Script**, type `ExerciseGuide` as the name, and paste the full contents of `ExerciseGuide.gs`.
-3. **Index.html**: in the left sidebar, click **+** next to "Files", choose **HTML**, and type `Index` as the name. Type only `Index`, because the editor adds `.html` itself, and use a capital I. Delete the sample content and paste the full contents of `Index.html`.
-4. **appsscript.json**: click the **gear icon (Project Settings)** in the far-left bar. Tick **"Show 'appsscript.json' manifest file in editor"**. Go back to the **Editor** (the `< >` icon), open `appsscript.json`, replace everything in it with this folder's `appsscript.json`.
-4. Click the **Save** icon (or press Ctrl+S / Cmd+S).
+3. **FoodData.gs**: click **+** next to "Files", choose **Script**, type `FoodData` as the name, and paste the full contents of `FoodData.gs`.
+4. **Index.html**: in the left sidebar, click **+** next to "Files", choose **HTML**, and type `Index` as the name. Type only `Index`, because the editor adds `.html` itself, and use a capital I. Delete the sample content and paste the full contents of `Index.html`.
+5. **appsscript.json**: click the **gear icon (Project Settings)** in the far-left bar. Tick **"Show 'appsscript.json' manifest file in editor"**. Go back to the **Editor** (the `< >` icon), open `appsscript.json`, replace everything in it with this folder's `appsscript.json`.
+6. Click the **Save** icon (or press Ctrl+S / Cmd+S).
 
 ### 3. Run `setup()` once
-This creates all the tabs in your Sheet and fills them with about 140 exercises, about 70 foods, 5 recipes and 6 routines.
+This creates all the tabs in your Sheet and fills them with about 140 exercises, about 200 foods (with fibre, fats, vitamins and minerals), 6 routines and a first weight of 50 kg. There are no recipes to start with: you add your own.
 
 1. In the toolbar above the code there is a dropdown of function names. Pick **setup**.
 2. Click **Run**.
@@ -56,7 +58,7 @@ This creates all the tabs in your Sheet and fills them with about 140 exercises,
 
 ### 5. Updating later (keeps the same URL)
 When you get a new version of the files:
-1. Paste the new `Code.gs` / `Index.html` over the old ones. If `ExerciseGuide.gs` is new to you, click **+** next to "Files", choose **Script**, name it `ExerciseGuide`, and paste it in. Then **Save**.
+1. Paste the new `Code.gs` / `Index.html` over the old ones. If `ExerciseGuide.gs` or `FoodData.gs` is new to you, click **+** next to "Files", choose **Script**, name it exactly `ExerciseGuide` or `FoodData`, and paste it in. Then **Save**, and run **setup** once (it updates old food data and keeps everything you entered).
 2. Click **Deploy → Manage deployments**, select your deployment, click the **pencil (Edit)** icon.
 3. Under **Version**, choose **New version**, then click **Deploy**.
 
@@ -86,7 +88,7 @@ You need Node.js 20 or newer. These steps use clasp 3.x, whose command names dif
    clasp create-script --type sheets --title "Logbook"
    ```
    This prints the new Sheet's URL and downloads a default `appsscript.json` (and possibly a `Code.js`).
-4. Replace the downloaded files with ours. Delete everything in the folder **except `.clasp.json`**, then copy in `Code.gs`, `ExerciseGuide.gs`, `Index.html` and `appsscript.json` from this folder.
+4. Replace the downloaded files with ours. Delete everything in the folder **except `.clasp.json`**, then copy in `Code.gs`, `ExerciseGuide.gs`, `FoodData.gs`, `Index.html` and `appsscript.json` from this folder.
 5. Upload them (`--force` lets our `appsscript.json` replace the default one):
    ```bash
    clasp push --force

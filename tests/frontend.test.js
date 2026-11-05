@@ -104,15 +104,26 @@ test('pure: nutrition calc for grams, pieces, servings and recipe grams', async 
   close(n.kcal, 265 * 1.5, 'paneer kcal'); close(n.p, 18.3 * 1.5, 'paneer p');
   n = calc('ing', 'roti', 2, 'pc', db);
   close(n.kcal, 297 * 0.8, 'roti 2pc'); close(n.f, 7.5 * 0.8, 'roti fat');
-  const t = recipeTotals(db.recipes.find(r => r.id === 'r_dal'), db);
-  close(t.g, 530, 'dal batch g');
-  close(t.kcal, 343 * 2.5 + 40 + 18 * 1.5 + 900 * 0.3, 'dal batch kcal');
-  n = calc('rec', 'r_dal', 1, 'srv', db); close(n.kcal, t.kcal / 5, 'per serving');
-  n = calc('rec', 'r_dal', 106, 'g', db); close(n.kcal, t.kcal / 5, '106 g = one serving');
-  assert.deepEqual(J(calc('ing', 'nope', 1, 'g', db)), { kcal: 0, p: 0, c: 0, f: 0 });
-  // design rendering helpers
-  const recTable = app.get('recipeTotalsTable')(t, 5);
-  assert.match(recTable, /Whole batch · 530 g/);
+  // a recipe is scaled by the weight of the finished dish
+  db.recipes.push({ id: 'r_t', name: 'Test sabji', servings: 2, cooked: 300, items: [{ ing: 'toor', g: 100 }, { ing: 'paneer', g: 50 }] });
+  const t = recipeTotals(db.recipes[0], db);
+  close(t.g, 150, 'raw total g'); close(t.w, 300, 'finished weight');
+  close(t.kcal, 343 + 265 * 0.5, 'batch kcal');
+  n = calc('rec', 'r_t', 150, 'g', db); close(n.kcal, t.kcal / 2, 'eating half of the finished weight = half the batch');
+  n = calc('rec', 'r_t', 1, 'srv', db); close(n.kcal, t.kcal / 2, 'one of two servings');
+  n = calc('rec', 'r_t', 100, 'g', db); close(n.p, t.p / 3, 'protein per 100 g');
+  db.recipes[0].cooked = null;
+  close(recipeTotals(db.recipes[0], db).w, 150, 'no finished weight -> raw total');
+  // other nutrients scale the same way and stay unknown when no food has them
+  const ing = db.ingredients.find(i => i.id === 'paneer');
+  n = calc('ing', 'paneer', 200, 'g', db);
+  Object.keys(ing.n).forEach(k => close(n.n[k], ing.n[k] * 2, 'nutrient ' + k));
+  assert.ok(Object.keys(ing.n).length > 10, 'paneer carries vitamins and minerals');
+  assert.deepEqual(J(calc('ing', 'nope', 1, 'g', db)), { kcal: 0, p: 0, c: 0, f: 0, n: {} });
+  const sum = app.get('sumN')([calc('ing', 'paneer', 100, 'g', db), calc('ing', 'paneer', 100, 'g', db)]);
+  close(sum.n.ca, ing.n.ca * 2, 'summed calcium');
+  const recTable = app.get('recipeTotalsTable')(recipeTotals(db.recipes[0], db), 2);
+  assert.match(recTable, /Per 100 g/); assert.match(recTable, /Whole dish · 150 g/); assert.match(recTable, /Per serving/);
 });
 
 test('pure: Epley 1RM, best-of/PR detection inputs', async () => {
@@ -179,9 +190,12 @@ test('boot: one getBootstrap round trip fills every slice; fresh empty sheet ren
   assert.deepEqual(app.ctl.calls, ['getBootstrap']);
   assert.equal(app.S.loading, false);
   const db = app.S.db;
-  assert.deepEqual(J(db.targets), { kcal: 2400, p: 160, c: 260, f: 70, water: 10, glassMl: 250 });
+  assert.deepEqual(J(db.targets), { water: 10, glassMl: 250 });
   assert.deepEqual(J(db.rotation), ['push', 'pull', 'legs']);
-  assert.ok(db.exercises.length >= 120 && db.ingredients.length >= 55 && db.routines.length === 6);
+  assert.ok(db.exercises.length >= 120 && db.ingredients.length >= 180 && db.routines.length === 6);
+  assert.equal(db.recipes.length, 0, 'no example recipes');
+  assert.deepEqual(J(db.weights.map(w => w.kg)), [50], 'starts at 50 kg');
+  assert.match(viewHtml(app), /Eaten today/); assert.ok(!/kcal left|Breakfast|Lunch|Dinner/.test(viewHtml(app)));
   renderAll(app, 'empty');
   assert.match(viewHtml(app), /Up next in rotation/);
 });
@@ -202,8 +216,9 @@ test('flow: water, food, weight, wellness persist; tmp ids replaced; delete conf
   assert.deepEqual(J(env.ctx.getWater().data), { [T]: 2 });
 
   A.pickFood({ dataset: { kind: 'ing', ref: 'paneer' } });
-  assert.equal(S.sheet.unit, 'g'); assert.equal(S.sheet.qty, 100);
-  A.qtySave();
+  assert.equal(S.sheet.unit, 'g'); assert.equal(S.sheet.qty, '');
+  A.qtySave(); assert.equal(S.db.foodLog.length, 0, 'needs a weight first');
+  S.sheet.qty = 100; A.qtySave();
   const tmp = S.db.foodLog[0];
   assert.match(String(tmp.id), /^tmp/); assert.equal(tmp._s, 'saving');
   await settle();
@@ -211,6 +226,8 @@ test('flow: water, food, weight, wellness persist; tmp ids replaced; delete conf
   const rows = env.ss.getSheetByName('FoodLog').objects();
   assert.equal(rows.length, 1);
   assert.deepEqual([rows[0].id, rows[0].ref_id, rows[0].kcal, rows[0].unit], [tmp.id, 'paneer', 265, 'g']);
+  assert.ok(JSON.parse(rows[0].nutrients).ca > 0, 'all nutrients are stored with the entry');
+  assert.ok(!('meal' in rows[0]));
 
   A.quick({ dataset: { kind: 'ing', ref: 'roti', qty: '2', unit: 'pc' } });
   await settle();
@@ -259,11 +276,11 @@ test('flow: new ingredient used straight away (before its save returns) ends up 
   const app = await boot();
   const { A, S, env, settle } = app;
   A.newIng({ dataset: { name: 'Sattu' } });
-  Object.assign(S.sheet, { kcal: '413', p: '20', c: '65', f: '7', fib: '', unitName: '', unitG: '' });
+  Object.assign(S.sheet, { kcal: '413', p: '20', c: '65', f: '7', n: {}, unitName: '', unitG: '' });
   A.ingSave();
   const ing = S.db.ingredients.find(i => i.name === 'Sattu'), tmpId = ing.id;
   assert.match(tmpId, /^tmp/);
-  A.pickFood({ dataset: { kind: 'ing', ref: tmpId } }); A.qtySave();   // logged while the ingredient is still saving
+  A.pickFood({ dataset: { kind: 'ing', ref: tmpId } }); S.sheet.qty = 50; A.qtySave();   // logged while the ingredient is still saving
   A.newRecipe(); Object.assign(S.sheet, { name: 'Sattu drink', servings: 1, items: [{ ing: tmpId, g: 40 }] }); A.rSave();
   await settle();
   assert.match(ing.id, /^i/);
@@ -534,4 +551,57 @@ test('bank: back works with browser history, and still works where history.pushS
     A.bankOpen(); A.exOpen({ dataset: { id: 'squat' } });
     if (!noHistory) { app.ctx.history.back(); assert.deepEqual([S.gym.bank, S.ex.detail], [true, null]); app.ctx.history.back(); assert.equal(S.gym.bank, false); }
   }
+});
+
+/* ============================== food overhaul ============================== */
+
+test('food: the app and the Sheet agree on the nutrient keys, in the same order', async () => {
+  const app = await boot();
+  assert.deepEqual(J(app.get('NKEYS')), J(app.env.get('NUTRIENTS_')).map(n => n[0]));
+});
+
+test('food: no meals anywhere; Day opens first; a food is logged by weight and shows labelled numbers', async () => {
+  const app = await boot();
+  const { A, S, settle, get } = app;
+  assert.equal(S.food.seg, 'day');
+  A.tab({ dataset: { t: 'food' } }); get('render')();
+  const day = viewHtml(app);
+  assert.ok(!/Breakfast|Lunch|Dinner|Snack|Pre-workout|kcal left|Target/.test(day), 'no meal or target wording');
+  A.foodSeg({ dataset: { s: 'log' } });
+  assert.ok(!/Log to|Breakfast/.test(viewHtml(app)));
+  A.pickFood({ dataset: { kind: 'ing', ref: 'apple' } });
+  assert.equal(S.sheet.unit, 'g');
+  S.sheet.qty = '200'; get('renderSheet')();
+  const sheet = app.els['#sheet'].innerHTML;
+  assert.match(sheet, /Protein/); assert.match(sheet, /Carbs/); assert.match(sheet, /Fat/); assert.match(sheet, /Calories/);
+  A.qtySave(); await settle();
+  const e = S.db.foodLog[0];
+  assert.equal(e.qty, 200); assert.equal(e.unit, 'g'); assert.ok(e.n.vitc > 0, 'vitamin C is carried with the entry');
+  A.foodSeg({ dataset: { s: 'day' } }); A.toggleNut(); get('render')();
+  const html2 = viewHtml(app);
+  assert.match(html2, /Vitamin C/); assert.match(html2, /Calcium/); assert.match(html2, /Folate/); assert.match(html2, /Hide all nutrients/);
+  assert.match(html2, /200 g/);
+  assert.ok(!/NaN|undefined/.test(html2));
+});
+
+test('food: new recipe is saved with its finished weight and logged by weight', async () => {
+  const app = await boot();
+  const { A, S, env, settle } = app;
+  A.newRecipe(); assert.equal(S.sheet.servings, 1);
+  Object.assign(S.sheet, { name: 'Aloo sabji', cooked: '500', items: [{ ing: 'potato', g: 400 }, { ing: 'oil', g: 20 }] }); A.rSave(); await settle();
+  const rec = S.db.recipes[0]; assert.match(rec.id, /^r/); assert.equal(rec.cooked, 500);
+  assert.equal(env.ss.getSheetByName('Recipes').objects()[0].cooked_g, 500);
+  A.pickFood({ dataset: { kind: 'rec', ref: rec.id } }); S.sheet.qty = '250'; A.qtySave(); await settle();
+  const e = S.db.foodLog[0], t = app.get('recipeTotals')(rec, S.db);
+  assert.ok(Math.abs(e.kcal - t.kcal / 2) < 1e-6, 'half of the finished dish = half the batch');
+  assert.equal(env.ss.getSheetByName('FoodLog').objects()[0].qty, 250);
+});
+
+test('food: ingredient form saves optional nutrients; blank stays unknown', async () => {
+  const app = await boot();
+  const { A, S, settle } = app;
+  A.newIng({ dataset: { name: 'Test seed' } });
+  Object.assign(S.sheet, { kcal: '500', p: '20', c: '30', f: '35' }); A.ingMore(); S.sheet.n.ca = '250'; S.sheet.n.vitc = '0'; S.sheet.n.fe = ''; A.ingSave(); await settle();
+  const i = S.db.ingredients.find(x => x.name === 'Test seed');
+  assert.deepEqual(J(i.n), { ca: 250, vitc: 0 });
 });
