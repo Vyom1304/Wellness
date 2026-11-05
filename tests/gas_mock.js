@@ -90,7 +90,7 @@ function makeEnv(opts) {
     setDataValidation(dv) { for (let j = 0; j < this.nc; j++) this.sh.validation[this.c + j] = dv; return this; }
     getSheet() { return this.sh; }
   }
-  ['setFontWeight', 'setBackground', 'setNote', 'setHorizontalAlignment', 'setWrap'].forEach(m => { Range.prototype[m] = function () { return this; }; });
+  ['setFontWeight', 'setBackground', 'setNote', 'setHorizontalAlignment', 'setWrap', 'setWrapStrategy', 'setVerticalAlignment'].forEach(m => { Range.prototype[m] = function () { return this; }; });
 
   class Sheet {
     constructor(ss, name) { Object.assign(this, { ss, name, data: [], maxRows: 1000, formats: {}, validation: {}, frozen: 0 }); }
@@ -143,6 +143,7 @@ function makeEnv(opts) {
     get(t, k) { if (k === 'build' || k === 'create') return () => onBuild(t); if (k in t) return t[k]; return (...a) => { (t._calls = t._calls || []).push([k, a]); return chain(t, onBuild); }; }
   });
   const SpreadsheetApp = {
+    WrapStrategy: { WRAP: 'WRAP', CLIP: 'CLIP', OVERFLOW: 'OVERFLOW' },
     getActiveSpreadsheet: () => (opts.unbound ? null : ss),
     openById: id => { if (id !== ss.id) throw new Error('not found'); return ss; },
     newDataValidation: () => chain({}, t => ({ kind: 'dv', calls: t._calls })),
@@ -198,8 +199,10 @@ function makeEnv(opts) {
 
   const quiet = { log() {}, error: opts.verbose ? console.error : () => {}, warn() {}, info() {} };
   const context = vm.createContext({ SpreadsheetApp, Utilities, CacheService, LockService, PropertiesService, ScriptApp, DriveApp, HtmlService, console: opts.console || quiet, Date, Math, JSON });
-  const code = fs.readFileSync(path.join(__dirname, '..', 'build', 'Code.gs'), 'utf8');
-  vm.runInContext(code, context, { filename: 'Code.gs' });
+  // Apps Script shares one global scope across all .gs files, so load them all into one context
+  fs.readdirSync(path.join(__dirname, '..', 'build')).filter(f => f.endsWith('.gs')).sort().forEach(f => {
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'build', f), 'utf8'), context, { filename: f });
+  });
   const get = expr => vm.runInContext(expr, context);
   return { ctx: context, get, ss, stats, cacheStore, triggers, folders, html, props, lockState };
 }

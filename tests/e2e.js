@@ -42,6 +42,7 @@ function seedHistory(env) {
   const errors = [];
   const browser = await chromium.launch();
   const shots = [];
+  const assertions = {};
 
   async function newPage(opts) {
     const context = await browser.newContext(opts);
@@ -113,61 +114,94 @@ function seedHistory(env) {
   await tap(page, '[data-a=editRecipe][data-id=r_dal]'); await sleep(150);
   await shot(page, '10-recipe-sheet');
   await tap(page, '.sh-head [data-a=closeSheet]');
-  // workout
-  await tap(page, '[data-a=tab][data-t=workout]'); await sleep(100);
-  await shot(page, '11-workout-routines');
+  // gym: routines, then the Exercises button at the bottom of the page
+  await tap(page, '[data-a=tab][data-t=gym]'); await sleep(100);
+  await shot(page, '11-gym-routines');
+  await page.evaluate(() => { const t = document.querySelector('#toast'); if (t) t.className = ''; window.scrollTo(0, document.body.scrollHeight); }); await sleep(250);
+  await shot(page, '12-gym-bottom-exercises-button');
+  const bankBtn = await page.locator('.bank-btn').boundingBox();
+  const navBox = await page.locator('#nav').boundingBox();
+  assertions.exercisesButtonClearOfNav = bankBtn.y + bankBtn.height <= navBox.y + 1;
+  await page.evaluate(() => window.scrollTo(0, 0));
+  // active workout, set by set
   await tap(page, '.tpl button.next');
   await tap(page, '[data-a=setDone][data-e="0"][data-s="0"]');
   await tap(page, '[data-a=setDone][data-e="0"][data-s="1"]');
+  await tap(page, '[data-a=addSet][data-e="0"]');
   await sleep(300);
-  await shot(page, '12-workout-active-rest');
+  await shot(page, '13-gym-active-sets');
   await idle(page);
   await tap(page, '[data-a=finishWorkout]'); await idle(page);
-  await shot(page, '13-workout-summary');
+  await shot(page, '14-gym-workout-summary');
   await tap(page, '[data-a=closeSummary]');
-  // exercises
-  await tap(page, '[data-a=tab][data-t=exercises]'); await tap(page, '[data-a=exFilter][data-f=group][data-v=back]'); await sleep(100);
-  await shot(page, '14-exercises-back');
-  await tap(page, '[data-a=exFilter][data-f=group][data-v=back]');
-  await tap(page, '[data-a=exOpen][data-id=bench]'); await page.waitForSelector('text=Recent sessions'); await idle(page); await sleep(200);
-  await shot(page, '15-exercise-detail');
+  // exercise bank: front, back, a muscle selected, detail
+  await tap(page, '[data-a=tab][data-t=gym]'); await tap(page, '[data-a=bankOpen]'); await sleep(250);
+  await shot(page, '15-bank-front');
+  await tap(page, '[data-a=exView][data-v=back]'); await sleep(900);
+  await shot(page, '16-bank-back');
+  await tap(page, '.mus[data-muscle=lats]'); await sleep(900);
+  assertions.mapSelectsLats = await page.evaluate(() => document.querySelector('.mus[data-muscle=lats]').classList.contains('sel') && S.ex.sub === 'lats');
+  await shot(page, '17-bank-lats-selected');
+  await page.evaluate(() => window.scrollTo(0, 520)); await sleep(150);
+  await shot(page, '18-bank-lats-list');
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await tap(page, '[data-a=exClear]'); await tap(page, '[data-a=exOpen][data-id=bench]'); await page.waitForSelector('text=Recent sessions'); await idle(page); await sleep(900);
+  assertions.detailHighlightsBench = await page.evaluate(() => document.querySelector('.mus[data-muscle=chest]').classList.contains('prim') && document.querySelector('.mus[data-muscle=triceps]') !== null);
+  await shot(page, '19-bank-exercise-detail');
+  await page.evaluate(() => window.scrollTo(0, 560)); await sleep(150);
+  await shot(page, '20-bank-how-to');
+  await page.goBack(); await sleep(500);
+  assertions.phoneBackClosesDetail = await page.evaluate(() => S.gym.bank === true && S.ex.detail === null);
+  await tap(page, '[data-a=exOpen][data-id=bench]'); await sleep(200);
   await tap(page, '[data-a=exEdit]'); await sleep(150);
-  await shot(page, '16-exercise-edit-sheet');
+  await shot(page, '21-bank-edit-exercise-sheet');
   await tap(page, '.sh-head [data-a=closeSheet]');
+  await tap(page, '[data-a=exBack]'); await tap(page, '[data-a=bankClose]'); await sleep(300);
+  assertions.backReturnsToGym = await page.evaluate(() => S.tab === 'gym' && !S.gym.bank);
+  // tap targets: every button/chip on the Gym and bank pages is at least 44 px tall (diagram muscles have chips as the alternative)
+  await tap(page, '[data-a=bankOpen]'); await sleep(200);
+  assertions.smallTargets = await page.evaluate(() => [...document.querySelectorAll('#view button, #view input')].filter(n => { const r = n.getBoundingClientRect(); return r.width && r.height && r.height < 43.5; }).map(n => (n.className || n.tagName) + ':' + Math.round(n.getBoundingClientRect().height)));
+  await tap(page, '[data-a=bankClose]');
   // progress
   await tap(page, '[data-a=tab][data-t=progress]'); await sleep(200);
-  await shot(page, '17-progress');
+  await shot(page, '22-progress');
   await page.locator('[data-a=energy][data-n="4"]').dispatchEvent('click'); await idle(page);
   // settings + dark theme
   await tap(page, '[data-a=settings]'); await sleep(150);
-  await shot(page, '18-settings');
+  await shot(page, '23-settings');
   await tap(page, '[data-a=setTheme][data-t=dark]'); await tap(page, '.sh-head [data-a=closeSheet]');
   await tap(page, '[data-a=tab][data-t=today]'); await sleep(150);
-  await shot(page, '19-today-dark');
+  await shot(page, '24-today-dark');
   const theme = await page.evaluate(() => localStorage.getItem('logbook_theme'));
   // delete an entry (confirm dialog auto-accepted)
   const before = env.ss.getSheetByName('FoodLog').rows().length;
   await tap(page, '.entry:has-text("Paneer")'); await tap(page, '[data-a=qtyDelete]'); await idle(page);
   const after = env.ss.getSheetByName('FoodLog').rows().length;
+  await tap(page, '[data-a=tab][data-t=gym]'); await tap(page, '[data-a=bankOpen]'); await tap(page, '.mus[data-muscle=quads]'); await sleep(900);
+  await shot(page, '25-bank-dark');
   await page.context().close();
 
   /* ---- 3. desktop layout ---- */
   page = await newPage({ viewport: { width: 1280, height: 860 } });
   await page.waitForSelector('text=kcal left');
-  await shot(page, '20-desktop-today');
+  await shot(page, '26-desktop-today');
   await tap(page, '[data-a=tab][data-t=progress]'); await sleep(200);
-  await shot(page, '21-desktop-progress');
+  await shot(page, '27-desktop-progress');
+  await tap(page, '[data-a=tab][data-t=gym]'); await tap(page, '[data-a=bankOpen]'); await tap(page, '.mus[data-muscle=chest]'); await sleep(900);
+  await shot(page, '28-desktop-bank');
   await page.context().close();
   await browser.close();
 
   const report = {
     screenshots: shots.length, errors,
-    themePersisted: theme,
+    themePersisted: theme, ...assertions,
     deleteRemovedRow: before - after === 1,
     workoutsInSheet: env.ss.getSheetByName('Workouts').rows().length,
     bootstrapCallsPerLoad: 'getBootstrap',
     distinctCalls: [...new Set(ctl.calls)].sort()
   };
   console.log(JSON.stringify(report, null, 2));
-  if (errors.length || !report.deleteRemovedRow || theme !== 'dark') process.exit(1);
+  const failed = ['exercisesButtonClearOfNav', 'mapSelectsLats', 'detailHighlightsBench', 'phoneBackClosesDetail', 'backReturnsToGym'].filter(k => !assertions[k]);
+  if (failed.length) console.error('FAILED checks: ' + failed.join(', '));
+  if (errors.length || failed.length || !report.deleteRemovedRow || theme !== 'dark') process.exit(1);
 })().catch(e => { console.error(e); process.exit(1); });

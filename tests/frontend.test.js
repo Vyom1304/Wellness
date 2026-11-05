@@ -41,6 +41,7 @@ function el() {
   const e = { _html: '', dataset: {}, style: {}, className: '', textContent: '', scrollTop: 0, value: '',
     get innerHTML() { return this._html; }, set innerHTML(v) { this._html = String(v); },
     get firstChild() { return this._html ? {} : null; },
+    classList: { toggle() {}, add() {}, remove() {} }, offsetWidth: 0, inert: false, replaceWith() {}, setAttribute() {},
     querySelector() { return el(); }, querySelectorAll() { return []; }, focus() {}, setSelectionRange() {}, closest() { return null; } };
   return e;
 }
@@ -52,14 +53,17 @@ async function boot(opts) {
   const ctl = { calls: [], failNext: 0 };
   const els = {};
   const storage = new Map(Object.entries(opts.storage || {}));
+  const pops = [];
   const document = {
-    querySelector: s => (els[s] = els[s] || el()), querySelectorAll: () => [],
-    addEventListener() {}, activeElement: null, documentElement: { dataset: { theme: 'auto' } }, body: { scrollHeight: 0 }
+    querySelector: s => s === '#mapslot' ? (String((els['#view'] || el())._html).includes('id="mapslot"') ? el() : null) : (els[s] = els[s] || el()), querySelectorAll: () => [],
+    createElement: () => el(), addEventListener() {}, activeElement: null, documentElement: { dataset: { theme: 'auto' } }, body: { scrollHeight: 0 }
   };
   const sandbox = {
     document, console, Date, Math, JSON, Promise, Set, Map, Object, Array, String, Number, Intl, Error, setImmediate,
     setTimeout: () => 0, clearTimeout() {}, setInterval: () => 0,
     localStorage: { getItem: k => (storage.has(k) ? storage.get(k) : null), setItem: (k, v) => storage.set(k, String(v)), removeItem: k => storage.delete(k) },
+    addEventListener: (t, f) => { if (t === 'popstate') pops.push(f); },
+    history: { pushState() { if (opts.noHistory) throw new Error('SecurityError'); }, back() { if (!opts.noHistory) pops.forEach(f => f()); } },
     navigator: {}, confirm: () => (opts.confirm === undefined ? true : opts.confirm), scrollTo() {}
   };
   sandbox.window = sandbox;
@@ -77,9 +81,14 @@ function assertClean(htmlStr, where) {
 }
 function renderAll(app, label) {
   const { S, get } = app;
-  for (const tab of ['today', 'food', 'workout', 'exercises', 'progress']) {
+  for (const tab of ['today', 'food', 'gym', 'progress']) {
     S.tab = tab;
-    if (tab === 'food') for (const seg of ['log', 'day', 'recipes', 'ingredients']) { S.food.seg = seg; get('render')(); assertClean(viewHtml(app), `${label} food/${seg}`); }
+    if (tab === 'gym') {
+      S.gym.bank = false; S.ex.detail = null; get('render')(); assertClean(viewHtml(app), `${label} gym`);
+      S.gym.bank = true; get('render')(); assertClean(viewHtml(app), `${label} gym/bank`);
+      S.ex.detail = 'bench'; get('render')(); assertClean(viewHtml(app), `${label} gym/bank/detail`);
+      S.gym.bank = false; S.ex.detail = null;
+    } else if (tab === 'food') for (const seg of ['log', 'day', 'recipes', 'ingredients']) { S.food.seg = seg; get('render')(); assertClean(viewHtml(app), `${label} food/${seg}`); }
     else { get('render')(); assertClean(viewHtml(app), `${label} ${tab}`); }
   }
   S.tab = 'today'; get('render')();
@@ -306,7 +315,7 @@ test('flow: workout — each ticked set is saved immediately; finish writes the 
   A.closeSummary();
   A.exOpen({ dataset: { id: 'bench' } }); await settle();
   assert.equal(S.ex.hist.length, 2);
-  S.tab = 'exercises'; get('render')(); assertClean(viewHtml(app), 'exercise detail');
+  S.tab = 'gym'; S.gym.bank = true; get('render')(); assertClean(viewHtml(app), 'exercise detail');
   assert.match(viewHtml(app), /Est\. 1RM/);
   renderAll(app, 'after workouts');
 });
@@ -359,4 +368,176 @@ test('static: no mock data or mock settings left in Index.html', () => {
   assert.equal(names.length, 23);
   for (const [, k, v] of names) assert.equal(k, v);
   assert.ok(html.includes('fonts.googleapis.com/css2?family=IBM+Plex+Mono'));
+});
+
+/* ============================== Gym tab + exercise bank ============================== */
+
+test('gym: old Workout/Exercises tabs are gone; their names route to Gym; the nav has four tabs', async () => {
+  const app = await boot(); const { S, get, A } = app;
+  S.tab = 'today'; get('render')();
+  const nav = app.els['#nav'].innerHTML;
+  assert.deepEqual([...nav.matchAll(/data-t="(\w+)"/g)].map(m => m[1]), ['today', 'food', 'gym', 'progress']);
+  assert.ok(!/>\s*Workout\s*</.test(nav) && !/>\s*Exercises\s*</.test(nav));
+  for (const old of ['workout', 'exercises']) { S.tab = 'today'; get('goTab')(old); assert.equal(S.tab, 'gym', old + ' -> gym'); }
+  // starting a workout from anywhere lands on Gym
+  S.tab = 'today'; A.startWorkout({ dataset: { r: 'push' } }); assert.equal(S.tab, 'gym');
+  assert.match(viewHtml(app), /Push day/);
+});
+
+test('gym: the Exercises button sits at the bottom of the Gym page, idle and mid-workout', async () => {
+  const app = await boot(); const { S, get, A } = app;
+  S.tab = 'gym'; get('render')();
+  let v = viewHtml(app);
+  assert.match(v, /data-a="bankOpen"/); assert.match(v, />Exercises</);
+  assert.ok(v.lastIndexOf('bankOpen') > v.indexOf('Empty workout'), 'button comes after the routines');
+  A.startWorkout({ dataset: { r: 'push' } }); v = viewHtml(app);
+  assert.ok(v.lastIndexOf('bankOpen') > v.lastIndexOf('addExercise'), 'button comes after Add exercise');
+  assert.match(v, /How to do it/); assert.match(v, /data-a="moveEx"/);
+  assertClean(v, 'active gym');
+});
+
+test('gym: set-by-set logging — ticking saves the set, add/remove set, reorder, PR tag, add from the bank', async () => {
+  const app = await boot(); const { S, get, A, settle, env } = app;
+  A.startWorkout({ dataset: { r: 'push' } });
+  const a = S.wo.active; assert.equal(a.exercises[0].exId, 'bench');
+  a.exercises[0].sets[0].w = '60'; a.exercises[0].sets[0].r = '8';
+  A.setDone({ dataset: { e: '0', s: '0' } }); await settle();
+  assert.equal(env.ss.getSheetByName('WorkoutSets').rows().length, 1, 'tick saved immediately');
+  A.addSet({ dataset: { e: '0' } }); assert.equal(a.exercises[0].sets.length, 2);
+  assert.deepEqual([a.exercises[0].sets[1].w, a.exercises[0].sets[1].r], ['60', '8'], 'add set copies the previous set');
+  A.delSet({ dataset: { e: '0' } }); assert.equal(a.exercises[0].sets.length, 1);
+  A.delSet({ dataset: { e: '0' } }); assert.equal(a.exercises[0].sets.length, 1, 'never below one set');
+  A.moveEx({ dataset: { e: '0', d: '1' } }); assert.equal(a.exercises[1].exId, 'bench'); A.moveEx({ dataset: { e: '1', d: '-1' } }); assert.equal(a.exercises[0].exId, 'bench');
+  const n = a.exercises.length; A.exUse({ dataset: { id: 'squat' } }); assert.equal(a.exercises.length, n + 1); assert.equal(a.exercises[n].exId, 'squat');
+  assert.equal(S.tab, 'gym'); assert.equal(S.gym.bank, false);
+  A.finishWorkout(); await settle();
+  // second session: beating the best shows a PR tag on the set
+  A.closeSummary(); A.startWorkout({ dataset: { r: 'push' } });
+  const b = S.wo.active.exercises[0]; b.sets[0].w = '65'; b.sets[0].r = '8'; A.setDone({ dataset: { e: '0', s: '0' } });
+  S.tab = 'gym'; get('render')(); assert.match(viewHtml(app), /class="n pr">PR</);
+});
+
+test('bank: filters are AND across categories and OR within one; muscle matches primary first, then assists', async () => {
+  const app = await boot(); const { S, get } = app;
+  const all = S.db.exercises, filter = (f) => J(get('filterExercises')(all, { q: '', group: null, sub: null, eq: [], mv: [], type: [], ...f }));
+  assert.equal(filter({}).length, all.length);
+  const chest = filter({ group: 'chest' });
+  assert.ok(chest.length > 15);
+  const firstSec = chest.findIndex(r => r.role === 'secondary'), lastPrim = chest.map(r => r.role).lastIndexOf('primary');
+  assert.ok(firstSec === -1 || chest.filter(r => r.role === 'primary').every(r => r.e.prim.includes('chest')));
+  assert.ok(chest.filter(r => r.role === 'secondary').every(r => r.e.sec.includes('chest') && !r.e.prim.includes('chest')));
+  // OR within a category
+  const bd = filter({ eq: ['barbell', 'dumbbell'] }); assert.ok(bd.every(r => ['barbell', 'dumbbell'].includes(r.e.eq)));
+  assert.equal(bd.length, filter({ eq: ['barbell'] }).length + filter({ eq: ['dumbbell'] }).length);
+  // AND across categories
+  const both = filter({ group: 'back', sub: 'lats', eq: ['cable'], mv: ['pull'], type: ['compound'] });
+  assert.ok(both.length > 0 && both.every(r => r.e.eq === 'cable' && r.e.mv === 'pull' && r.e.type === 'compound' && (r.e.prim.includes('lats') || r.e.sec.includes('lats'))));
+  assert.equal(filter({ group: 'chest', eq: ['machine'] }).length, chest.filter(r => r.e.eq === 'machine').length);
+  // search
+  assert.ok(filter({ q: 'curl' }).every(r => /curl/i.test(r.e.name)));
+  assert.equal(filter({ q: 'zzzz' }).length, 0);
+  // a sub-muscle narrows the group
+  const lats = filter({ group: 'back', sub: 'lats' }); assert.ok(lats.length < filter({ group: 'back' }).length);
+});
+
+test('bank: tapping a muscle on the map sets the filter, flips to the right side, and tapping again clears it', async () => {
+  const app = await boot(); const { S, A, get } = app;
+  A.bankOpen(); assert.equal(S.gym.bank, true);
+  A.muscle({ dataset: { muscle: 'lats' } });
+  assert.deepEqual([S.ex.group, S.ex.sub, S.ex.view], ['back', 'lats', 'back'], 'lats live on the back, within the Back group');
+  assert.deepEqual(J(get('exFilterMuscles')(S.ex)), ['lats']);
+  A.muscle({ dataset: { muscle: 'lats' } }); assert.deepEqual([S.ex.group, S.ex.sub], [null, null]);
+  A.muscle({ dataset: { muscle: 'biceps' } }); assert.deepEqual([S.ex.group, S.ex.sub, S.ex.view], ['biceps', null, 'front'], 'single-muscle groups use the group');
+  A.muscle({ dataset: { muscle: 'hamstrings' } }); assert.equal(S.ex.view, 'back');
+  // chips and diagram share the same state
+  A.exClear(); A.exFilter({ dataset: { f: 'group', v: 'back' } }); A.exFilter({ dataset: { f: 'sub', v: 'rear_delts' } });
+  assert.equal(S.ex.sub, 'rear_delts');
+  A.exFilter({ dataset: { f: 'eq', v: 'cable' } }); A.exFilter({ dataset: { f: 'eq', v: 'dumbbell' } }); assert.deepEqual(J(S.ex.eq), ['cable', 'dumbbell']);
+  A.exFilter({ dataset: { f: 'eq', v: 'cable' } }); assert.deepEqual(J(S.ex.eq), ['dumbbell']);
+  get('render')(); assertClean(viewHtml(app), 'filtered bank');
+  A.exClear(); assert.deepEqual([S.ex.group, S.ex.sub, S.ex.eq.length, S.ex.mv.length, S.ex.type.length, S.ex.q], [null, null, 0, 0, 0, '']);
+});
+
+test('bank: every muscle used by any exercise has a region on the diagram, and every region is a real muscle', async () => {
+  const app = await boot(); const { S, get } = app;
+  const BODY = J(get('BODY')), VIEWS = J(get('MUSCLE_VIEWS')), MUSCLES = Object.keys(J(get('MUSCLES')));
+  const front = BODY.front.map(r => r[0]), back = BODY.back.map(r => r[0]);
+  const used = new Set(S.db.exercises.flatMap(e => e.prim.concat(e.sec)));
+  for (const m of used) assert.ok(front.includes(m) || back.includes(m), 'no diagram region for ' + m);
+  for (const m of MUSCLES) assert.ok(front.includes(m) || back.includes(m), 'muscle without a region: ' + m);
+  for (const m of front.concat(back)) assert.ok(MUSCLES.includes(m), 'region for unknown muscle ' + m);
+  // the view table agrees with the artwork
+  for (const m of MUSCLES) assert.deepEqual(VIEWS[m].slice().sort(), [front.includes(m) ? 'front' : null, back.includes(m) ? 'back' : null].filter(Boolean).sort(), 'MUSCLE_VIEWS mismatch for ' + m);
+  // the SVG itself: one tappable group per region, mirrored for the other side, labelled for screen readers
+  const svg = get('bodySVG')('back');
+  assert.equal((svg.match(/class="mus"/g) || []).length, back.length);
+  assert.ok(/role="button" tabindex="0"/.test(svg) && /aria-label="Lats"/.test(svg));
+  assert.ok(svg.includes('scale(-1 1)'));
+  // groups cover exactly the muscles
+  assert.deepEqual(Object.keys(J(get('GROUP_OF'))).sort(), MUSCLES.slice().sort());
+});
+
+test('bank: detail shows how-to steps, cues, mistakes, what it hits; opens from a workout and goes back', async () => {
+  const app = await boot(); const { S, A, get, settle } = app;
+  A.startWorkout({ dataset: { r: 'push' } });
+  A.howTo({ dataset: { id: 'bench' } }); await settle();
+  assert.equal(S.gym.bank, true); assert.equal(S.ex.detail, 'bench'); assert.equal(S.ex.from, 'gym');
+  const v = viewHtml(app);
+  for (const t of ['How to do it', 'Form cues', 'Common mistakes', 'What it hits', 'Add to workout', 'Primary', 'Assists']) assert.ok(v.includes(t), t);
+  assert.match(v, /<ol><li>/); assertClean(v, 'detail');
+  assert.match(v, /id="mapslot"/);
+  // back goes straight to the Gym page (the bank list was never opened)
+  get('navBack')(); assert.deepEqual([S.gym.bank, S.ex.detail], [false, null]);
+  // from the bank list, back goes to the list first, then to Gym
+  A.bankOpen(); A.exOpen({ dataset: { id: 'squat' } }); get('navBack')(); assert.deepEqual([S.gym.bank, S.ex.detail], [true, null]); get('navBack')(); assert.equal(S.gym.bank, false);
+  // an exercise with no instructions invites you to add some
+  S.db.exercises.push({ id: 'mine', name: 'Mine', prim: ['chest'], sec: [], eq: 'cable', mv: 'push', type: 'isolation', base: 10, note: '', how: [], cues: [], mist: [] });
+  A.bankOpen(); A.exOpen({ dataset: { id: 'mine' } }); assert.match(viewHtml(app), /No instructions yet/); assert.match(viewHtml(app), /Add instructions/);
+});
+
+test('bank: editing instructions in the form saves them to the Sheet; new exercise form has the how-to fields', async () => {
+  const app = await boot(); const { S, A, get, settle, env } = app;
+  A.bankOpen(); A.exNew(); get('renderSheet')();
+  const f = app.els['#sheet'].innerHTML; for (const t of ['How to do it', 'Form cues', 'Common mistakes', 'What it hits most']) assert.ok(f.includes(t), t);
+  Object.assign(S.sheet, { name: 'Landmine row', prim: ['upper_back'], sec: ['lats'], eq: 'barbell', mv: 'pull', mech: 'compound', note: 'Mid back', howText: 'Straddle the bar\nRow to the chest\n\n', cuesText: 'Chest up', mistText: 'Jerking' });
+  A.exSave(); await settle();
+  const row = env.ss.getSheetByName('Exercises').objects().find(r => r.name === 'Landmine row');
+  assert.deepEqual([row.how_to, row.cues, row.mistakes, row.muscle_note], ['Straddle the bar\nRow to the chest', 'Chest up', 'Jerking', 'Mid back']);
+  const e = S.db.exercises.find(x => x.name === 'Landmine row'); assert.ok(!String(e.id).startsWith('tmp'));
+  assert.deepEqual(J(e.how), ['Straddle the bar', 'Row to the chest']);
+  // editing a seeded exercise pre-fills the form with its text
+  S.ex.detail = 'bench'; A.exEdit(); assert.match(S.sheet.howText, /Lie on the bench/);
+});
+
+test('bank: sort by recently trained and best lift; secondary results follow primary', async () => {
+  const app = await boot(); const { S, get } = app;
+  S.db.workouts = [{ id: 'a', date: '2024-01-01', ex: [{ id: 'bench', sets: [{ w: 60, r: 8 }] }] }, { id: 'b', date: '2024-02-01', ex: [{ id: 'cable_fly', sets: [{ w: 20, r: 12 }] }, { id: 'pec_deck', sets: [{ w: 90, r: 10 }] }] }];
+  const run = mode => J(get('sortResults')(get('filterExercises')(S.db.exercises, { q: '', group: 'chest', sub: null, eq: [], mv: [], type: [] }), mode)).map(r => r.e.id);
+  assert.deepEqual(run('recent').slice(0, 3).sort(), ['bench', 'cable_fly', 'pec_deck'].sort());
+  assert.equal(run('recent')[2], 'bench', 'oldest of the three trained comes last among them');
+  assert.equal(run('best')[0], 'pec_deck');
+  const az = run('az'); const roles = J(get('sortResults')(get('filterExercises')(S.db.exercises, { q: '', group: 'chest', sub: null, eq: [], mv: [], type: [] }), 'az')).map(r => r.role);
+  assert.ok(roles.indexOf('secondary') === -1 || roles.slice(roles.indexOf('secondary')).every(r => r === 'secondary'), 'secondary after primary');
+  assert.ok(az.length > 15);
+});
+
+test('static: build has no leftover tabs/functions from the old layout, and no external libraries', () => {
+  assert.ok(!/data-t="workout"|data-t="exercises"/.test(html));
+  assert.ok(!/function vWorkout|function vExercises|function filteredExercises/.test(html));
+  assert.ok(!/<script[^>]+src=/.test(html), 'no external scripts');
+  assert.ok(!/\beval\(|new Function\(|\sonclick=|\sonerror=/.test(script.replace('onclick="location.reload()"', '')), 'no eval or inline handlers (HtmlService)');
+  assert.ok(html.includes('prefers-reduced-motion'), 'reduced-motion handled');
+});
+
+test('bank: back works with browser history, and still works where history.pushState is blocked (sandboxed iframe)', async () => {
+  for (const noHistory of [false, true]) {
+    const app = await boot({ noHistory }); const { S, A, get } = app; S.tab = 'gym';
+    A.bankOpen(); A.exOpen({ dataset: { id: 'squat' } });
+    assert.equal(get('NAV').depth, noHistory ? 0 : 2, 'history entries pushed only when allowed');
+    A.exBack(); assert.deepEqual([S.gym.bank, S.ex.detail], [true, null], 'noHistory=' + noHistory);
+    A.bankClose(); assert.deepEqual([S.gym.bank, S.ex.detail], [false, null], 'noHistory=' + noHistory);
+    // the phone's own back button (popstate) closes the detail, then the list
+    A.bankOpen(); A.exOpen({ dataset: { id: 'squat' } });
+    if (!noHistory) { app.ctx.history.back(); assert.deepEqual([S.gym.bank, S.ex.detail], [true, null]); app.ctx.history.back(); assert.equal(S.gym.bank, false); }
+  }
 });
