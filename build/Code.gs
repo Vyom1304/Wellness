@@ -13,7 +13,7 @@
 const TZ_DEFAULT = 'Asia/Kolkata';
 const FOOD_WINDOW_DAYS = 63;          // getBootstrap sends this many days of food log (covers the 8-week charts)
 const CACHE_TTL_S = 6 * 60 * 60;      // CacheService maximum
-const CACHE_VERSION = 'v1';
+const CACHE_VERSION = 'v2';
 const LOCK_WAIT_MS = 20000;
 const BACKUP_FOLDER_NAME = 'Backups';
 // Icon shown in the browser tab and on a phone home screen. Any public .png URL works.
@@ -63,7 +63,9 @@ const SCHEMA_ = {
     { n: 'id', w: 120, f: '@' }, { n: 'name', w: 230, f: '@' },
     { n: 'primary_muscles', w: 170, f: '@', v: 'muscles' }, { n: 'secondary_muscles', w: 200, f: '@', v: 'muscles?' },
     { n: 'equipment', w: 95, list: EQUIP_ }, { n: 'movement_type', w: 100, list: MOVES_ },
-    { n: 'mechanic', w: 90, list: MECH_ }, { n: 'base_kg', w: 70, f: '0.##' }, { n: 'notes', w: 260, f: '@' }],
+    { n: 'mechanic', w: 90, list: MECH_ }, { n: 'base_kg', w: 70, f: '0.##' }, { n: 'notes', w: 260, f: '@' },
+    { n: 'muscle_note', w: 260, f: '@', wrap: true }, { n: 'how_to', w: 420, f: '@', wrap: true },
+    { n: 'cues', w: 300, f: '@', wrap: true }, { n: 'mistakes', w: 300, f: '@', wrap: true }],
   Routines: [
     { n: 'id', w: 90, f: '@' }, { n: 'name', w: 120, f: '@' }, { n: 'exercise_id', w: 120, f: '@' },
     { n: 'order', w: 55, f: '0' }, { n: 'target_sets', w: 80, f: '0' }, { n: 'target_reps', w: 85, f: '@' },
@@ -120,6 +122,9 @@ function num_(v, def) {
 }
 function str_(v) { return isBlank_(v) ? '' : String(v).trim(); }
 function bool_(v) { return v === true || /^(true|yes|y|1)$/i.test(String(v).trim()); }
+/** Multi-line cells (one step / cue / mistake per line). Accepts "|" too, so the Sheet is easy to edit. */
+function splitLines_(v) { return str_(v).split(/\r?\n|\|/).map(function (s) { return s.trim(); }).filter(Boolean); }
+function joinLines_(a) { return (Array.isArray(a) ? a : splitLines_(a)).map(function (s) { return str_(s); }).filter(Boolean).join('\n'); }
 function splitList_(v) { return str_(v).split(/[,;|]/).map(function (s) { return s.trim(); }).filter(Boolean); }
 function isTmpId_(id) { return /^tmp/.test(String(id || '')); }
 function isIsoDate_(s) { return typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s); }
@@ -238,14 +243,21 @@ function exerciseFromRow_(r) {
     id: str_(r.id), name: str_(r.name),
     prim: splitList_(r.primary_muscles), sec: splitList_(r.secondary_muscles),
     eq: str_(r.equipment) || 'barbell', mv: str_(r.movement_type) || 'push', type: str_(r.mechanic) || 'compound',
-    base: num_(r.base_kg, 0)
+    base: num_(r.base_kg, 0),
+    note: str_(r.muscle_note), how: splitLines_(r.how_to), cues: splitLines_(r.cues), mist: splitLines_(r.mistakes)
   };
 }
 function exerciseToFields_(e) {
-  return {
+  const f = {
     id: e.id, name: str_(e.name), primary_muscles: (e.prim || []).join(', '), secondary_muscles: (e.sec || []).join(', '),
     equipment: e.eq, movement_type: e.mv, mechanic: e.type, base_kg: num_(e.base, 0)
   };
+  // only touch the how-to columns when the client sent them (an older cached page must not blank them)
+  if (e.note !== undefined) f.muscle_note = str_(e.note);
+  if (e.how !== undefined) f.how_to = joinLines_(e.how);
+  if (e.cues !== undefined) f.cues = joinLines_(e.cues);
+  if (e.mist !== undefined) f.mistakes = joinLines_(e.mist);
+  return f;
 }
 function validateExercise_(e) {
   if (!str_(e.name)) throw new Error('Exercise needs a name');
@@ -789,6 +801,7 @@ function setup() {
       log.push(name + ': seeded ' + objs.length + ' rows');
     }
   });
+  backfillGuide_(log);
   // remove the blank default tab if this run created the database
   const first = ss.getSheetByName('Sheet1');
   if (created.length && first && first.getLastRow() === 0 && first.getLastColumn() === 0 && ss.getSheets().length > 1) { ss.deleteSheet(first); log.push('Removed empty Sheet1'); }
@@ -798,6 +811,27 @@ function setup() {
   log.push('Setup complete.');
   console.log(log.join('\n'));
   return log;
+}
+
+/**
+ * Fills the how-to columns for the seeded exercises, only into cells that are blank, so anything
+ * edited in the Sheet (or written for your own exercises) is never replaced. Safe to run repeatedly.
+ */
+function backfillGuide_(log) {
+  CTX_ = null;
+  const t = table_('Exercises');
+  const cols = ['muscle_note', 'how_to', 'cues', 'mistakes'];
+  if (cols.some(function (c) { return t.header.indexOf(c) < 0; })) return;
+  let filled = 0;
+  t.rows.forEach(function (r) {
+    const g = guideFields_(str_(r.id));
+    if (!g) return;
+    const patch = {};
+    cols.forEach(function (c) { if (isBlank_(r[c]) && g[c]) patch[c] = g[c]; });
+    if (Object.keys(patch).length) { updateRow_(t, r, patch); filled++; }
+  });
+  if (filled) log.push('Exercises: added how-to details for ' + filled + ' exercises');
+  CTX_ = null;
 }
 
 function formatTab_(sh, cols) {
@@ -811,6 +845,7 @@ function formatTab_(sh, cols) {
     sh.setColumnWidth(col, c.w);
     const rg = sh.getRange(2, col, rows, 1);
     if (c.f) rg.setNumberFormat(c.f);
+    if (c.wrap) rg.setWrapStrategy(SpreadsheetApp.WrapStrategy.WRAP).setVerticalAlignment('top');
     let dv = null;
     if (c.list) dv = SpreadsheetApp.newDataValidation().requireValueInList(c.list, true).setAllowInvalid(false).build();
     else if (c.v === 'checkbox') dv = SpreadsheetApp.newDataValidation().requireCheckbox().build();
@@ -1165,8 +1200,8 @@ const SEED_EXERCISES_ = [
 ];
 function seedExercises_() {
   return SEED_EXERCISES_.map(function (a) {
-    return { id: a[0], name: a[1], primary_muscles: a[2].split(',').join(', '), secondary_muscles: a[3] ? a[3].split(',').join(', ') : '',
-      equipment: a[4], movement_type: a[5], mechanic: a[6], base_kg: a[7], notes: a[8] };
+    return Object.assign({ id: a[0], name: a[1], primary_muscles: a[2].split(',').join(', '), secondary_muscles: a[3] ? a[3].split(',').join(', ') : '',
+      equipment: a[4], movement_type: a[5], mechanic: a[6], base_kg: a[7], notes: a[8] }, guideFields_(a[0]) || {});
   });
 }
 

@@ -15,7 +15,7 @@
 | Weights | waist_cm | kept, not shown in UI | Design has no waist input; preserved on overwrite. |
 | Settings | weight_unit | kept, not used | Design shows kg only. |
 
-## Front-end changes vs design/index.html (all in tools/make_index.py)
+## Front-end changes vs design/index.html (now made directly in build/Index.html)
 1. Mock data, mock api, CONFIG latency/failRate and the "Simulate failed saves" toggle removed; real google.script.run api added.
 2. Startup: one `getBootstrap()` call instead of 10 reads.
 3. Fonts: design export had local font blobs; now loads the same IBM Plex families from Google Fonts.
@@ -26,3 +26,13 @@
 8. `addSet` payload also sends `exIndex`.
 9. Empty-state guards: no weights yet (Progress showed NaN) and no routine in rotation.
 10. 7-day average extracted into `rollingAvg()` (unit-tested). "Made with Claude Design" badge removed.
+
+## v2: Gym tab and exercise bank
+- Workout and Exercises tabs merged into one **Gym** tab (nav: Today / Food / Gym / Progress). Old tab names still route to Gym.
+- Gym logs set by set (exercise, weight, reps), with "- Set", move up/down, PR tag, and a "How to do it" link per exercise.
+- **Exercises** button at the bottom of Gym opens the exercise bank: animated front/back body map (original artwork), tap a muscle to filter, plus search and filters for push/pull/legs/core, equipment, compound/isolation, sorted A-Z, recently trained or best lift. Filters combine with AND across groups, OR within one. Muscle filter lists primary movers first, then "Also works" assisting exercises.
+- Exercise detail: highlighted muscles, "What it hits" bars, how-to steps, form cues, common mistakes, PR and history. Add to workout straight from the bank.
+- Exercises sheet gains `muscle_note`, `how_to`, `cues`, `mistakes` columns (new file `ExerciseGuide.gs` holds the text for all 142 seeded exercises). `setup()` adds the columns and fills only blank cells, so your edits are never overwritten.
+- `CACHE_VERSION` bumped to v2. No columns renamed or removed; Today, Food and Progress unchanged apart from nav.
+- `tools/make_index.py` retired: `build/Index.html` is now the source.
+- Known: chest sub-regions (upper/mid/lower) stay in notes; the stale browser-history entry after closing the bank is harmless.

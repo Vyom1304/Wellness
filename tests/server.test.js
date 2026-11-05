@@ -91,6 +91,8 @@ test('row mapping: blank rows skipped, buildRow_ keeps columns it was not told a
   assert.deepEqual(J(ctx.buildRow_(['id', 'x'], { id: 'z', x: null })), ['z', '']);
 });
 
+const CORE = e => ({ id: e.id, name: e.name, prim: e.prim, sec: e.sec, eq: e.eq, mv: e.mv, type: e.type, base: e.base });
+
 test('row mapping: ingredient and exercise round trips match the design shapes', () => {
   const { ctx } = makeEnv();
   for (const ing of D.ingredients) {
@@ -99,8 +101,17 @@ test('row mapping: ingredient and exercise round trips match the design shapes',
   }
   for (const ex of D.exercises) {
     const back = J(ctx.exerciseFromRow_(J(ctx.exerciseToFields_(ex))));
-    assert.deepEqual(back, ex);
+    assert.deepEqual(CORE(back), ex);
+    assert.deepEqual([back.note, back.how, back.cues, back.mist], ['', [], [], []], 'design exercises have no how-to text');
   }
+  // how-to text round trips as one line per step; "|" is accepted when typed into the Sheet
+  const full = { ...D.exercises[0], note: 'Mid chest leads', how: ['Set up', 'Lower', 'Press'], cues: ['Chest up'], mist: ['Bouncing'] };
+  const f = J(ctx.exerciseToFields_(full));
+  assert.equal(f.how_to, 'Set up\nLower\nPress');
+  assert.deepEqual(J(ctx.exerciseFromRow_({ ...f, how_to: 'A|B\nC' })).how, ['A', 'B', 'C']);
+  // a client that did not send the how-to fields must not blank them in the Sheet
+  const partial = J(ctx.exerciseToFields_(D.exercises[0]));
+  for (const k of ['muscle_note', 'how_to', 'cues', 'mistakes']) assert.ok(!(k in partial), k + ' should be left alone');
 });
 
 test('row mapping: workouts group sets by exercise order, even with the same exercise twice', () => {
@@ -245,6 +256,59 @@ test('setup: idempotent, never overwrites data, adds missing columns at the end'
   assert.equal(env.triggers.filter(t => t.getHandlerFunction() === 'onSheetChange').length, 1);
 });
 
+/* ============================== exercise guide (how-to) ============================== */
+
+test('guide: every seeded exercise has muscle note, 3-6 steps, 2+ cues, 2+ mistakes; no stray entries', () => {
+  const env = makeEnv();
+  const ids = J(env.get('SEED_EXERCISES_')).map(a => a[0]), guide = env.get('EXERCISE_GUIDE_');
+  assert.deepEqual(Object.keys(guide).sort(), ids.slice().sort());
+  for (const id of ids) {
+    const g = J(env.ctx.guideFields_(id));
+    const n = k => g[k].split('\n').length;
+    assert.ok(g.muscle_note.length > 10, id + ' muscle_note');
+    assert.ok(n('how_to') >= 3 && n('how_to') <= 6, id + ' steps ' + n('how_to'));
+    assert.ok(n('cues') >= 2, id + ' cues'); assert.ok(n('mistakes') >= 2, id + ' mistakes');
+    assert.ok(!/[|]/.test(g.how_to + g.cues + g.mistakes), id + ' leftover separator');
+  }
+  assert.equal(env.ctx.guideFields_('nope'), null);
+});
+
+test('setup: fresh sheet is seeded with how-to text, and the new columns exist with wrap', () => {
+  const env = makeEnv(); env.ctx.setup();
+  const sh = env.ss.getSheetByName('Exercises');
+  assert.deepEqual(sh.header().slice(-4), ['muscle_note', 'how_to', 'cues', 'mistakes']);
+  const rows = sh.objects();
+  assert.ok(rows.every(r => r.how_to && r.cues && r.mistakes && r.muscle_note), 'every seeded row has all four');
+});
+
+test('setup: an existing Exercises tab gets the new columns and blank cells are filled, edits are never replaced', () => {
+  const env = makeEnv(); env.ctx.setup();
+  const sh = env.ss.getSheetByName('Exercises');
+  // simulate a sheet from before this version: drop the four new columns, then add my own exercise and edit one
+  const keep = sh.header().length - 4;
+  sh.data = sh.data.map(r => r.slice(0, keep));
+  sh.data.push(['mine1', 'My cable thing', 'chest', '', 'cable', 'push', 'isolation', 10, 'Added from the app']);
+  env.ctx.setup();
+  assert.deepEqual(sh.header().slice(-4), ['muscle_note', 'how_to', 'cues', 'mistakes']);
+  const byId = id => sh.objects().find(r => r.id === id);
+  assert.ok(/Lie on the bench/.test(byId('bench').how_to), 'seeded exercise backfilled');
+  assert.equal(byId('mine1').how_to, '', 'my own exercise is left alone');
+  // now edit one cell, blank another, and re-run: only the blank one is refilled
+  const hi = sh.header().indexOf('how_to'), ci = sh.header().indexOf('cues');
+  const bi = sh.data.findIndex(r => r[0] === 'bench');
+  sh.data[bi][hi] = 'My own steps'; sh.data[bi][ci] = '';
+  env.ctx.setup();
+  assert.equal(byId('bench').how_to, 'My own steps', 'edited text kept');
+  assert.ok(byId('bench').cues.length > 5, 'blank cell refilled');
+  const snap = JSON.stringify(sh.data); env.ctx.setup();
+  assert.equal(JSON.stringify(sh.data), snap, 'idempotent');
+});
+
+test('cache: bumped version so cached rows without the new fields are not served', () => {
+  const env = makeEnv();
+  assert.equal(env.get('CACHE_VERSION'), 'v2');
+});
+
 /* ============================== API ============================== */
 
 const ENTRY = { id: 'tmp1700000000abc', date: '2024-11-05', time: '08:20', meal: 'breakfast', kind: 'ing', ref: 'oats', qty: 60, unit: 'g', name: 'Rolled oats', kcal: 233.4, p: 10.14, c: 39.78, f: 4.14 };
@@ -255,7 +319,8 @@ test('api: bootstrap returns every slice in the design shapes, with design defau
   assert.deepEqual(Object.keys(b).sort(), ['exercises', 'foodLog', 'foodLogFrom', 'ingredients', 'recipes', 'rotation', 'routines', 'targets', 'water', 'weights', 'wellness', 'workouts'].sort());
   assert.deepEqual(b.targets, D.targets);
   assert.deepEqual(b.rotation, ['push', 'pull', 'legs']);
-  assert.deepEqual(b.exercises.find(e => e.id === 'bench'), D.exercises.find(e => e.id === 'bench'));
+  assert.deepEqual(CORE(b.exercises.find(e => e.id === 'bench')), D.exercises.find(e => e.id === 'bench'));
+  assert.ok(b.exercises.every(e => Array.isArray(e.how) && Array.isArray(e.cues) && Array.isArray(e.mist) && typeof e.note === 'string'), 'every exercise carries the how-to fields');
   assert.deepEqual(b.ingredients.find(i => i.id === 'roti'), D.ingredients.find(i => i.id === 'roti'));
   assert.deepEqual([b.foodLog, b.water, b.weights, b.wellness, b.workouts], [[], {}, [], [], []]);
   assert.equal(b.foodLogFrom, '2024-09-03');
@@ -362,10 +427,16 @@ test('api: exercises — validation, create, edit keeps notes', () => {
   const bad = env.ctx.saveExercise({ id: 'tmp1', name: 'X', prim: ['pecs'], sec: [], eq: 'barbell', mv: 'push', type: 'compound', base: 20 });
   assert.equal(bad.ok, false); assert.match(bad.error, /muscle/);
   const e = ok(env.ctx.saveExercise({ id: 'tmp2', name: 'Seal row', prim: ['upper_back'], sec: ['lats'], eq: 'barbell', mv: 'pull', type: 'compound', base: 40 }));
-  assert.deepEqual({ ...e, id: 0 }, { id: 0, name: 'Seal row', prim: ['upper_back'], sec: ['lats'], eq: 'barbell', mv: 'pull', type: 'compound', base: 40 });
+  assert.deepEqual({ ...CORE(e), id: 0 }, { id: 0, name: 'Seal row', prim: ['upper_back'], sec: ['lats'], eq: 'barbell', mv: 'pull', type: 'compound', base: 40 });
+  assert.deepEqual([e.note, e.how, e.cues, e.mist], ['', [], [], []]);
+  // an exercise you add yourself can carry its own instructions
+  const own = ok(env.ctx.saveExercise({ id: 'tmp3', name: 'Cable crossover', prim: ['chest'], sec: [], eq: 'cable', mv: 'push', type: 'isolation', base: 15, note: 'Chest only', how: ['Step in', 'Bring hands together'], cues: ['Slow'], mist: ['Swinging'] }));
+  assert.deepEqual([own.note, own.how, own.cues, own.mist], ['Chest only', ['Step in', 'Bring hands together'], ['Slow'], ['Swinging']]);
+  assert.deepEqual(ok(env.ctx.getExercises()).find(x => x.id === own.id).how, ['Step in', 'Bring hands together']);
   ok(env.ctx.saveExercise({ ...D.exercises.find(x => x.id === 'bench'), name: 'Bench press (comp grip)' }));
   const row = env.ss.getSheetByName('Exercises').objects().find(r => r.id === 'bench');
   assert.deepEqual([row.name, row.notes, row.primary_muscles], ['Bench press (comp grip)', 'Mid chest', 'chest']);
+  assert.ok(/Lie on the bench/.test(row.how_to), 'saving without how-to fields keeps the seeded instructions');
   assert.equal(ok(env.ctx.getExercises()).find(x => x.id === 'bench').name, 'Bench press (comp grip)');
 });
 
